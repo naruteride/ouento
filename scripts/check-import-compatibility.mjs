@@ -191,7 +191,7 @@ async function main() {
     `결과: ${catalog.status}, ${catalog.passedBundleCount}/${catalog.sampleBundleCount} 공식 샘플 묶음 (${catalog.characterFamilyCount}캐릭터 계열)`,
   );
   console.log(`manifest: ${portable(path.relative(root, destination))}`);
-  console.log('브라우저 Core/표정/물리/립싱크, 독립 사용자 모델 10개 및 양 OS 검증과 구분합니다.');
+  console.log('브라우저 Core/표정/물리/립싱크, 알파 실사용 및 양 OS 검증과 구분합니다.');
   if (catalog.status !== 'passed') process.exitCode = 1;
 }
 

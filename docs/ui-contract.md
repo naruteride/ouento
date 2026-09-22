@@ -79,13 +79,17 @@
 | `observation-analyze`    | 없음                                                 | 현재 허용 범위의 화면을 명시적으로 한 번 분석. 자동 반응의 입력·조용히·집중·회의 억제는 제외 |
 | `permission-request`     | `permission: screen`                                 | 화면 캡처 권한 요청                                                                          |
 | `memory-enable`          | `value`                                              | 허용한 요약 기억 사용                                                                        |
-| `memory-save`            | `id`(문자열 또는 null), `content, expiresAt`         | 기억 생성/수정                                                                               |
+| `memory-save`            | `id`(문자열 또는 null), `content, expiresAt, requestId` | 기억 생성/수정. 실제 저장 결과를 같은 requestId로 확인                                      |
 | `memory-delete`          | `id`                                                 | 기억 삭제                                                                                    |
 | `provider-save`          | `kind, endpoint, model, voice?, apiKey, requiresKey` | 제공자 설정·키 저장. 빈 키는 기존 키 유지                                                    |
 | `provider-remove-key`    | `kind`                                               | 저장된 키 제거                                                                               |
 | `settings-save`          | `settings`                                           | FPS·크기·음소거·항상 위·추적 설정                                                            |
 
 모델별 매핑 값은 모두 문자열이다. `emotion_calm/happy/sad/surprised/annoyed`는 실제 표정 이름 또는 빈 값(파라미터 대체), `layout_scale`은 .5~2, `layout_x/y`는 -1~1, `tracking_strength`는 0~1이다. `app.clearMappingDraft()`는 취소·저장 실패 복구 시 입력 초안을 비운다.
+
+기억은 앞뒤 공백 제거 후 Unicode 코드포인트 1~1,000자, 채팅은 1~4,000자로 Rust와 같은 한도를 제출 전에 검사한다. HTML `maxlength`는 UTF-16 단위이므로 각각 2,000/8,000으로 두고 코드포인트 검사를 별도로 수행한다. 한도 초과·잘못된 만료일은 입력을 지우지 않는다.
+
+기억 저장 중에는 필드·저장·닫기·Escape를 잠그고 중복 요청을 막는다. 컨트롤러는 실제 `save_memory` 성공 직후 `app.completeMemorySave(requestId)`를 호출한다. 실패에는 두 번째 인자로 오류 문자열을 전달하며 모달과 모든 입력을 유지하고 재시도를 허용한다. 이전 요청의 결과는 무시한다. 저장 성공 뒤 snapshot 조회만 실패하면 저장을 재시도하게 만들지 않고 별도 안내한다.
 
 `read_import_asset({token,entrypoint,path})`는 검사한 임시 모델 자산을 읽는다. `import_model`과 `switch_model`은 ‘이 캐릭터 사용’을 누르기 전에는 호출하지 않는다. Core가 거부한 후보는 선택 창에서 오류와 함께 다른 후보/파일로 재시도할 수 있다. 메타데이터는 실제 로딩에 성공한 뒤 `save_model_metadata({id,metadata:{parameters:[{id,minimum,maximum,default}],expressions}})`로 저장하며 검사를 생략하는 캐시로 사용하지 않는다.
 

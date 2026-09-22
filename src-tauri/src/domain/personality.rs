@@ -51,6 +51,7 @@ pub fn preview_personality(id: &str) -> Result<Reaction, String> {
         text: text.into(),
         emotion: Emotion::Happy,
         intensity: p.expression_strength,
+        gesture_intensity: Some(p.gesture_strength),
         gaze,
         gesture,
         priority: 2,
@@ -121,6 +122,7 @@ pub fn result_scene_reaction(
             text: "합격이라고 적혀 있는데, 네 결과야?".into(),
             emotion: Emotion::Surprised,
             intensity: 0.35,
+            gesture_intensity: None,
             gaze: Gaze::Screen,
             gesture: Gesture::Tilt,
             priority: 1,
@@ -130,6 +132,7 @@ pub fn result_scene_reaction(
             text: "마음이 복잡하겠다. 이야기하고 싶으면 옆에 있을게.".into(),
             emotion: Emotion::Sad,
             intensity: 0.35,
+            gesture_intensity: None,
             gaze: Gaze::User,
             gesture: Gesture::None,
             priority: 1,
@@ -180,6 +183,9 @@ mod tests {
         let b = preview_personality("cat").unwrap();
         let c = preview_personality("cheerleader").unwrap();
         assert!(a.intensity > b.intensity && c.intensity > a.intensity);
+        assert_eq!(a.gesture_intensity, Some(0.5));
+        assert_eq!(b.gesture_intensity, Some(0.25));
+        assert_eq!(c.gesture_intensity, Some(0.8));
         assert_ne!(a.gesture, b.gesture);
         assert_ne!(b.gesture, c.gesture);
     }

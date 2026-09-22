@@ -566,3 +566,105 @@ test('manual mapping changes recompute mouth, gaze and emotion support and notif
     globalThis.CustomEvent = previous;
   }
 });
+
+test('actual Core gestures use available axes, their own phase, and return while speech continues', () => {
+  const bindings = {
+    angleX: 'ParamAngleX',
+    angleY: 'ParamAngleY',
+    angleZ: 'ParamAngleZ',
+    bodyAngle: 'ParamBodyAngleX',
+    bodyAngleY: 'ParamBodyAngleY',
+    bodyAngleZ: 'ParamBodyAngleZ',
+  };
+  for (const name of ['Mao', 'Haru', 'Kei_vowels']) {
+    const moc = sdk.CubismMoc.create(buffer(bytes(`public/models/${name}/${name}.moc3`)), true);
+    assert.ok(moc);
+    const model = moc.createModel();
+    try {
+      const parameters = Array.from({ length: model.getParameterCount() }, (_, index) => ({
+        id: model.getParameterId(index).getString(),
+        minimum: model.getParameterMinimumValue(index),
+        maximum: model.getParameterMaximumValue(index),
+        default: model.getParameterDefaultValue(index),
+      }));
+      const indices = new Map(parameters.map((p, i) => [p.id, i]));
+      for (const id of Object.values(bindings)) assert.ok(indices.has(id), `${name}: ${id}`);
+      const physics = JSON.parse(bytes(`public/models/${name}/${name}.physics3.json`));
+      const outputs = new Set(
+        physics.PhysicsSettings.flatMap((setting) => setting.Output.map((p) => p.Destination.Id)),
+      );
+      for (const id of Object.values(bindings))
+        assert.equal(outputs.has(id), false, `${name}: gesture must not overwrite physics output`);
+
+      const snapshot = (gesture, age, start = 400, mapping = bindings, gestureIntensity = 0.8) => {
+        parameters.forEach((p, i) => model.setParameterValueByIndex(i, p.default));
+        const renderer = Object.create(sdk.CharacterRenderer.prototype);
+        Object.assign(renderer, {
+          model: { coreModel: model },
+          indices,
+          parameters,
+          mapping,
+          expressions: {},
+          emotionWeights: {},
+          elapsed: start,
+          cursor: { x: 0, y: 0 },
+          gaze: { x: 0, y: 0 },
+          head: { x: 0, y: 0 },
+          tracking: true,
+          blinkAt: Infinity,
+          blinkStart: -Infinity,
+          speaking: true,
+        });
+        renderer.react({ emotion: 'happy', intensity: 0, gesture, gestureIntensity, gaze: 'user' });
+        renderer.updateFace(age);
+        const values = Object.fromEntries(
+          parameters.map((p, i) => [p.id, model.getParameterValueByIndex(i)]),
+        );
+        for (const p of parameters)
+          assert.ok(
+            Number.isFinite(values[p.id]) && values[p.id] >= p.minimum && values[p.id] <= p.maximum,
+          );
+        return values;
+      };
+      for (const [gesture, changed] of [
+        ['none', []],
+        ['nod', ['ParamAngleY']],
+        ['tilt', ['ParamAngleZ', 'ParamBodyAngleZ']],
+        ['smallBounce', ['ParamAngleY', 'ParamBodyAngleY']],
+        ['lookAway', ['ParamAngleX', 'ParamBodyAngleX']],
+      ]) {
+        const baseline = snapshot('none', 0.22);
+        const active = snapshot(gesture, 0.22);
+        for (const id of Object.values(bindings))
+          assert.equal(
+            Math.abs(active[id] - baseline[id]) > 1e-5,
+            changed.includes(id),
+            `${name}/${gesture}/${id}`,
+          );
+        // App uptime affects idle motion, but the same new reaction has the same offset.
+        const laterBaseline = snapshot('none', 0.22, 900);
+        const later = snapshot(gesture, 0.22, 900);
+        for (const id of changed)
+          assert.ok(Math.abs(active[id] - baseline[id] - (later[id] - laterBaseline[id])) < 1e-6);
+        assert.deepEqual(
+          snapshot(gesture, 3),
+          snapshot('none', 3),
+          `${gesture}: one shot during speech`,
+        );
+        assert.deepEqual(
+          snapshot(gesture, 0.22, 400, {}),
+          snapshot('none', 0.22, 400, {}),
+          'no fake axes',
+        );
+        assert.deepEqual(
+          snapshot(gesture, 0.22, 400, bindings, 0),
+          baseline,
+          'zero independent strength',
+        );
+      }
+    } finally {
+      moc.deleteModel(model);
+      moc.release();
+    }
+  }
+});

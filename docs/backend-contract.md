@@ -72,11 +72,13 @@ Tauri `save_settings`는 선택 창을 최초 허용할 때 창 ID·PID·앱 ID�
 
 `speech-cancelled` 이벤트 payload는 `{origin: string}`이며 직접 취소 명령의 origin은 Tauri가 주입한 호출 창 label이다. 모델 교체는 `origin: "model"`. 프런트엔드는 자신의 요청 시작을 위해 보낸 취소 이벤트와 다른 창에서 받은 취소를 구분한다. `observation-stopped`는 관찰 발화만 취소한다. keyring 상태 확인 실패는 snapshot의 `credentialError`로 표시하며 캐릭터/설정 로딩을 차단하지 않는다.
 
-표정 강도는 프리셋 강도와 `personalityIntensity`를 함께 적용한다. 발화 빈도는 프리셋의 최소 간격과 `personalityFrequency`를 함께 적용하고 0이면 선제 반응을 끈다. 질투 빈도는 별도의 최소 간격(최대 빈도에서도 10분)을 적용한다. 이 값은 초기 제품 정책이며 측정된 성능 수치가 아니다.
+표정과 몸짓 강도는 각 프리셋의 `expressionStrength`·`gestureStrength`와 `personalityIntensity`를 각각 적용한다. 몸짓에 표정 배율을 다시 곱하지 않는다. 사용자 합격 장면도 공통 정책에서 한 번만 배율을 적용해 기본 강도에서 동일 장면 미리보기와 일치한다. 발화 빈도는 프리셋의 최소 간격과 `personalityFrequency`를 함께 적용하고 0이면 선제 반응을 끈다. 질투 빈도는 별도의 최소 간격(최대 빈도에서도 10분)을 적용한다. 이 값은 초기 제품 정책이며 측정된 성능 수치가 아니다.
 
 ## 데이터
 
 `Reaction`: `{shouldReact: bool, text: string, emotion: "happy"|"sad"|"surprised"|"annoyed"|"calm", intensity: 0..1, gaze: "user"|"screen"|"away", gesture: "none"|"nod"|"tilt"|"smallBounce"|"lookAway", priority: 0..3}`. 알 수 없는 필드·열거형·범위 초과·긴 대사는 거부한다. 실제 Cubism 파라미터는 전달하지 않는다.
+
+위 계약은 제공자 입력이다. Rust가 성격 정책을 적용한 출력에는 `gestureIntensity?: 0..1`이 추가된다. 제공자 입력의 이 필드는 거부하며 로컬에서만 결정한다. 프리셋 미리보기의 표정/몸짓 강도는 츤데레 `.7/.5`, 고양이 `.35/.25`, 응원단 `.95/.8`이다. 렌더러는 몸짓 강도 0을 그대로 유지하고, 필드가 없는 표정 미리보기 등에는 `intensity`를 사용한다. 몸짓은 감정·발화 지속 시간과 별개로 1.2~1.6초에 한 번 움직인 뒤 복귀한다.
 
 `ConversationReply`: `{utteranceId: string, reaction: Reaction, source: "provider"|"localOsEvent"}`. `AudioReply`: `{utteranceId, audioBase64, mimeType}`. UI에서 base64를 AudioContext가 디코딩할 바이트로 변환한다. 오디오와 입 모양은 해당 Web Audio 재생 시계를 기준으로 한다.
 

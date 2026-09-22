@@ -23,6 +23,8 @@
 
 구조체 JSON 필드는 `camelCase`다. 오류는 사용자에게 표시 가능한 한국어 메시지다.
 
+Windows의 `GetAsyncKeyState`는 논리 기본 버튼이 아니라 물리 버튼을 읽는다. `GetSystemMetrics(SM_SWAPBUTTON)`에 따라 왼쪽/오른쪽을 선택해 기본 버튼을 교환한 사용자도 드래그 유지 상태를 올바르게 읽는다. [Microsoft API 계약](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate). 호스트에서 타입 검사는 했지만 Windows 링크·실기 검증은 별도다.
+
 ## 좌표와 관찰 사실
 
 macOS의 CGEvent 전역 커서는 주 디스플레이 왼쪽 위 기준 **desktop points**, Windows GetCursorPos는 DPI-aware 앱의 **physical pixels**다. `CursorSample.coordinateSpace`로 구분한다. 혼합 배율 환경에서 macOS 전역 점에 단일 화면 배율을 곱하지 않는다. Tauri 창과 비교하는 네이티브 hit test에는 동일 좌표계를 반환하는 Tauri `Window::cursor_position`/창 좌표를 사용하고 CSS 좌표 변환 시 해당 창 배율을 적용한다.

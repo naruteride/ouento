@@ -787,9 +787,32 @@ app.addEventListener('action', async (event) => {
         const reaction = native
           ? await call('personality_preview', { preset: a.preset })
           : {
+              shouldReact: true,
               emotion: 'happy',
-              intensity: { tsundere: 0.55, cat: 0.25, cheerleader: 1 }[a.preset],
-              gesture: a.preset === 'cat' ? 'tilt' : 'nod',
+              priority: 2,
+              ...{
+                tsundere: {
+                  text: '붙었네. 그렇게 준비했으니까… 축하해.',
+                  intensity: 0.7,
+                  gestureIntensity: 0.5,
+                  gaze: 'away',
+                  gesture: 'tilt',
+                },
+                cat: {
+                  text: '합격이네. 잘했어. 이제 좀 쉬자.',
+                  intensity: 0.35,
+                  gestureIntensity: 0.25,
+                  gaze: 'user',
+                  gesture: 'nod',
+                },
+                cheerleader: {
+                  text: '해냈다! 열심히 준비한 만큼 좋은 소식이 왔네!',
+                  intensity: 0.95,
+                  gestureIntensity: 0.8,
+                  gaze: 'user',
+                  gesture: 'smallBounce',
+                },
+              }[a.preset],
             };
         renderer?.react(reaction);
         await toCompanion('reaction', { reaction });
@@ -854,8 +877,14 @@ app.addEventListener('action', async (event) => {
             confirmed: true,
           },
         });
-        await refresh();
+        // A failed snapshot refresh must not offer a retry of an already committed insert.
+        app.completeMemorySave(a.requestId);
         app.notify('기억을 저장했어요.');
+        try {
+          await refresh();
+        } catch (err) {
+          app.notify(`기억은 저장됐지만 목록을 새로 읽지 못했어요. ${String(err)}`, 'error');
+        }
         break;
       case 'memory-delete':
         await call('delete_memory', { id: a.id });
@@ -885,6 +914,7 @@ app.addEventListener('action', async (event) => {
         break;
     }
   } catch (err) {
+    if (a.type === 'memory-save') app.completeMemorySave(a.requestId, String(err));
     if (err?.name !== 'AbortError') error(err);
   }
 });

@@ -24,6 +24,10 @@ let failSave = false;
 let failSwitch = false;
 let deferMetadata = false;
 let resolveMetadata;
+let memoryWrite;
+let failSnapshot = false;
+const memoryCompletions = [];
+const notifications = [];
 const merge = (base, patch) => {
   const value = { ...base };
   for (const [key, item] of Object.entries(patch))
@@ -42,7 +46,12 @@ const app = {
   addEventListener(type, handler) {
     events.set(type, handler);
   },
-  notify() {},
+  notify(message) {
+    notifications.push(message);
+  },
+  completeMemorySave(...args) {
+    memoryCompletions.push(args);
+  },
   openImport() {
     this.importOpen = true;
   },
@@ -85,7 +94,19 @@ class Renderer {
 }
 const call = async (name, args = {}) => {
   operations.push([name, structuredClone(args)]);
-  if (name === 'snapshot') return structuredClone(saved);
+  if (name === 'snapshot') {
+    if (failSnapshot) {
+      failSnapshot = false;
+      throw new Error('snapshot unavailable');
+    }
+    return structuredClone(saved);
+  }
+  if (name === 'save_memory') {
+    await memoryWrite;
+    const memory = { ...args.input, id: args.input.id ?? `memory${saved.memories.length}` };
+    saved.memories.push(memory);
+    return memory;
+  }
   if (name === 'cancel_speech' || name === 'discard_import') return;
   if (name === 'inspect_model')
     return {
@@ -284,6 +305,45 @@ assert.equal(run('inspection'), null);
 assert.ok(
   operations.some(([name, args]) => name === 'discard_import' && args.token === discardedToken),
 );
+
+// Memory dialogs acknowledge the actual write, not submission or snapshot refresh.
+const action = (detail) => events.get('action')({ detail });
+const draft = {
+  type: 'memory-save',
+  requestId: 1,
+  id: null,
+  content: '시험은 다음 주',
+  expiresAt: null,
+};
+let resolveWrite;
+memoryWrite = new Promise((resolve) => {
+  resolveWrite = resolve;
+});
+const pendingMemory = action(draft);
+assert.equal(memoryCompletions.length, 0, 'must keep draft open until commit');
+resolveWrite();
+await pendingMemory;
+assert.deepEqual(memoryCompletions.pop(), [1]);
+assert.equal(saved.memories.at(-1).text, draft.content);
+
+const countBeforeFailure = saved.memories.length;
+memoryWrite = Promise.reject(new Error('disk unavailable'));
+await action({ ...draft, requestId: 2 });
+assert.deepEqual(memoryCompletions.pop(), [2, 'Error: disk unavailable']);
+assert.equal(saved.memories.length, countBeforeFailure);
+
+memoryWrite = Promise.resolve();
+failSnapshot = true;
+await action({ ...draft, requestId: 3 });
+assert.deepEqual(memoryCompletions.splice(0), [[3]], 'committed insert cannot become retryable');
+assert.equal(saved.memories.length, countBeforeFailure + 1);
+assert.ok(notifications.at(-1).startsWith('기억은 저장됐지만'));
+
+sandbox.native = false;
+await action({ ...draft, requestId: 4 });
+assert.equal(memoryCompletions.at(-1)[0], 4);
+assert.match(memoryCompletions.at(-1)[1], /데스크톱 앱/);
+assert.equal(saved.memories.length, countBeforeFailure + 1);
 console.log(
-  'model preview controller: 10 import, preview, commit, cancellation, failure scenarios passed',
+  'model preview/memory controller: 14 import, preview, commit, cancellation, failure and memory write scenarios passed',
 );

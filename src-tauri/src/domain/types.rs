@@ -266,6 +266,9 @@ pub struct Reaction {
     pub text: String,
     pub emotion: Emotion,
     pub intensity: f32,
+    /// Local performance policy; providers cannot choose the preset's gesture amplitude.
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub gesture_intensity: Option<f32>,
     pub gaze: Gaze,
     pub gesture: Gesture,
     pub priority: u8,
@@ -274,6 +277,9 @@ impl Reaction {
     pub fn validate(&self) -> Result<(), String> {
         if !self.intensity.is_finite()
             || !(0.0..=1.0).contains(&self.intensity)
+            || self
+                .gesture_intensity
+                .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
             || self.priority > 3
         {
             return Err("AI 반응 강도 또는 우선순위가 허용 범위를 벗어났습니다.".into());
@@ -297,6 +303,7 @@ impl Reaction {
             text: String::new(),
             emotion: Emotion::Calm,
             intensity: 0.0,
+            gesture_intensity: Some(0.0),
             gaze: Gaze::User,
             gesture: Gesture::None,
             priority: 0,

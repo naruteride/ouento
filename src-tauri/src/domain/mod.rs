@@ -565,6 +565,7 @@ impl Backend {
             text: text.into(),
             emotion: Emotion::Calm,
             intensity: strength,
+            gesture_intensity: None,
             gaze,
             gesture,
             priority: 0,
@@ -683,10 +684,19 @@ fn lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>, String> {
         .map_err(|_| "앱 상태를 읽을 수 없습니다. 앱을 다시 실행해 주세요.".into())
 }
 fn apply_personality(settings: &Settings, reaction: &mut Reaction) -> Result<(), String> {
+    reaction.validate()?;
     let preset = personality::personality(&settings.personality)?;
-    reaction.intensity =
-        (reaction.intensity * preset.expression_strength * (settings.personality_intensity / 0.7))
-            .clamp(0.0, 1.0);
+    let scale = settings.personality_intensity / 0.7;
+    reaction.gesture_intensity = Some(if reaction.gesture == Gesture::None {
+        0.0
+    } else {
+        (reaction
+            .gesture_intensity
+            .unwrap_or(reaction.intensity * preset.gesture_strength)
+            * scale)
+            .clamp(0.0, 1.0)
+    });
+    reaction.intensity = (reaction.intensity * preset.expression_strength * scale).clamp(0.0, 1.0);
     if preset.gesture_strength < 0.4 && reaction.gesture == Gesture::SmallBounce {
         reaction.gesture = Gesture::Nod;
     }
@@ -718,6 +728,7 @@ fn scene_reaction_for(
             text: "결과가 아쉬워 보이네. 네 이야기라면, 얘기하고 싶을 때 곁에 있을게.".into(),
             emotion: Emotion::Sad,
             intensity: 0.4,
+            gesture_intensity: None,
             gaze: Gaze::User,
             gesture: Gesture::None,
             priority: 1,
@@ -725,7 +736,12 @@ fn scene_reaction_for(
     }
     if analysis.scene.result_status == ResultStatus::Success {
         if analysis.scene.result_owner == ResultOwner::User {
-            return preview_personality(&settings.personality);
+            let mut reaction = preview_personality(&settings.personality)?;
+            // The shared observation policy applies preset strengths once below.
+            // Preview output already contains them, so restore the input amplitude.
+            reaction.intensity = 1.0;
+            reaction.gesture_intensity = None;
+            return Ok(reaction);
         }
         if analysis.scene.result_owner == ResultOwner::Other {
             return Ok(Reaction {
@@ -733,6 +749,7 @@ fn scene_reaction_for(
                 text: "다른 사람의 합격 소식으로 보이네.".into(),
                 emotion: Emotion::Calm,
                 intensity: 0.3,
+                gesture_intensity: None,
                 gaze: Gaze::Screen,
                 gesture: Gesture::Nod,
                 priority: 0,
@@ -743,6 +760,7 @@ fn scene_reaction_for(
             text: "합격이라고 적혀 있는데, 네 결과야?".into(),
             emotion: Emotion::Surprised,
             intensity: 0.4,
+            gesture_intensity: None,
             gaze: Gaze::Screen,
             gesture: Gesture::Tilt,
             priority: 1,
@@ -762,6 +780,7 @@ fn scene_reaction_for(
             text: text.into(),
             emotion: Emotion::Annoyed,
             intensity: settings.jealousy.intensity,
+            gesture_intensity: None,
             gaze: Gaze::Away,
             gesture: Gesture::LookAway,
             priority: 0,
@@ -774,6 +793,97 @@ fn scene_reaction_for(
 mod tests {
     use super::*;
     use crate::providers::SceneEvidence;
+    #[test]
+    fn personality_scales_gestures_separately_from_expression() {
+        for (id, expression, gesture, expected_gesture) in [
+            ("tsundere", 0.7, 0.5, Gesture::SmallBounce),
+            ("cat", 0.35, 0.25, Gesture::Nod),
+            ("cheerleader", 0.95, 0.8, Gesture::SmallBounce),
+        ] {
+            let mut settings = Settings {
+                personality: id.into(),
+                ..Default::default()
+            };
+            let mut input = preview_personality(id).unwrap();
+            input.intensity = 0.6;
+            input.gesture = Gesture::SmallBounce;
+            input.gesture_intensity = None; // Unmodified provider contract.
+            let mut reaction = input.clone();
+            apply_personality(&settings, &mut reaction).unwrap();
+            assert!((reaction.intensity - 0.6 * expression).abs() < 1e-6);
+            assert!((reaction.gesture_intensity.unwrap() - 0.6 * gesture).abs() < 1e-6);
+            assert_eq!(reaction.gesture, expected_gesture);
+
+            settings.personality_intensity = 0.35;
+            apply_personality(&settings, &mut input).unwrap();
+            assert!((input.intensity - reaction.intensity * 0.5).abs() < 1e-6);
+            assert!(
+                (input.gesture_intensity.unwrap() - reaction.gesture_intensity.unwrap() * 0.5)
+                    .abs()
+                    < 1e-6
+            );
+        }
+    }
+    #[test]
+    fn local_gesture_strength_keeps_preset_and_explicit_zero() {
+        let mut settings = Settings {
+            personality: "cheerleader".into(),
+            ..Default::default()
+        };
+        let mut reaction = preview_personality("cheerleader").unwrap();
+        apply_personality(&settings, &mut reaction).unwrap();
+        assert_eq!(reaction.gesture_intensity, Some(0.8));
+        reaction.gesture_intensity = Some(0.0);
+        apply_personality(&settings, &mut reaction).unwrap();
+        assert_eq!(reaction.gesture_intensity, Some(0.0));
+        reaction.gesture_intensity = Some(1.0);
+        settings.personality_intensity = 0.0;
+        apply_personality(&settings, &mut reaction).unwrap();
+        assert_eq!(reaction.gesture_intensity, Some(0.0));
+        assert_eq!(reaction.intensity, 0.0);
+        reaction.gesture = Gesture::None;
+        reaction.gesture_intensity = Some(0.8);
+        settings.personality_intensity = 0.7;
+        apply_personality(&settings, &mut reaction).unwrap();
+        assert_eq!(reaction.gesture_intensity, Some(0.0));
+    }
+    #[test]
+    fn personality_does_not_turn_invalid_amplitudes_into_valid_output() {
+        for value in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
+            let mut reaction = preview_personality("cat").unwrap();
+            reaction.gesture_intensity = Some(value);
+            assert!(apply_personality(&Settings::default(), &mut reaction).is_err());
+            reaction.gesture_intensity = None;
+            reaction.intensity = value;
+            assert!(apply_personality(&Settings::default(), &mut reaction).is_err());
+        }
+    }
+    #[test]
+    fn recognized_user_success_matches_the_same_scene_preview() {
+        for id in ["tsundere", "cat", "cheerleader"] {
+            let settings = Settings {
+                personality: id.into(),
+                ..Default::default()
+            };
+            let analysis = VisionAnalysis {
+                reaction: Reaction::silence(),
+                scene: SceneEvidence {
+                    result_status: ResultStatus::Success,
+                    result_owner: ResultOwner::User,
+                    other_character: false,
+                },
+            };
+            let mut actual = scene_reaction(
+                &settings,
+                analysis,
+                &mut ObservationGate::default(),
+                now_ms(),
+            )
+            .unwrap();
+            apply_personality(&settings, &mut actual).unwrap();
+            assert_eq!(actual, preview_personality(id).unwrap());
+        }
+    }
     fn os_event() -> crate::platform::OsEvent {
         use crate::platform::*;
         OsEvent {

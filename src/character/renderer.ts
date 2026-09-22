@@ -9,6 +9,7 @@ import { CubismPoseUpdater } from '@framework/motion/cubismposeupdater';
 import { CubismShaderManager_WebGL } from '@framework/rendering/cubismshader_webgl';
 import { CubismWebGLOffscreenManager } from '@framework/rendering/cubismoffscreenmanager';
 import { hitTestModel, type TextureAlpha } from './hit-test';
+import { gestureName, sampleGesture, parameterOffset, type Gesture } from './gestures';
 import { parseExpression, validatePhysics, validatePose, type Expression } from './optional-assets';
 type Parameter = {
   id: string;
@@ -22,6 +23,7 @@ type Reaction = {
   intensity: number;
   gaze?: string;
   gesture?: string;
+  gestureIntensity?: number;
 };
 export type ModelSource = {
   url: string;
@@ -128,7 +130,9 @@ export class CharacterRenderer {
   private emotion = 'calm';
   private emotionWeights: Record<string, number> = {};
   private intensity = 0.7;
-  private gesture = 'none';
+  private gesture: Gesture = 'none';
+  private gestureIntensity = 0;
+  private gestureStartedAt = 0;
   private gazeTarget = 'user';
   private reactionUntil = 0;
   private blinkAt = 2 + Math.random() * 3;
@@ -330,7 +334,10 @@ export class CharacterRenderer {
         gazeY: find('ParamEyeBallY'),
         angleX: find('ParamAngleX'),
         angleY: find('ParamAngleY'),
+        angleZ: find('ParamAngleZ'),
         bodyAngle: find('ParamBodyAngleX'),
+        bodyAngleY: find('ParamBodyAngleY'),
+        bodyAngleZ: find('ParamBodyAngleZ'),
         breath: find('ParamBreath'),
         ...source.mapping,
       };
@@ -556,7 +563,10 @@ export class CharacterRenderer {
   react(reaction: Reaction) {
     this.emotion = reaction.emotion === 'neutral' ? 'calm' : reaction.emotion;
     this.intensity = clamp(reaction.intensity, 0, 1);
-    this.gesture = reaction.gesture ?? 'none';
+    this.gesture = gestureName(reaction.gesture);
+    const gestureIntensity = reaction.gestureIntensity ?? reaction.intensity;
+    this.gestureIntensity = Number.isFinite(gestureIntensity) ? clamp(gestureIntensity, 0, 1) : 0;
+    this.gestureStartedAt = this.elapsed;
     this.gazeTarget = reaction.gaze ?? 'user';
     this.reactionUntil = this.elapsed + 5;
   }
@@ -584,6 +594,15 @@ export class CharacterRenderer {
       clamp(value, p.minimum, p.maximum),
       weight,
     );
+  }
+  private gestureOffset(id: string, fraction: number) {
+    const index = this.indices.get(id);
+    return parameterOffset(index === undefined ? undefined : this.parameters[index], fraction);
+  }
+  private writeGesture(id: string, fraction: number) {
+    const index = this.indices.get(id);
+    if (index === undefined) return;
+    this.write(id, this.parameters[index].default + this.gestureOffset(id, fraction));
   }
   private updateFace(dt: number) {
     this.elapsed += dt;
@@ -636,8 +655,13 @@ export class CharacterRenderer {
         );
       }
     }
+    const gesture = sampleGesture(
+      this.gesture,
+      this.elapsed - this.gestureStartedAt,
+      this.gestureIntensity,
+    );
     const strength = this.tracking
-      ? (this.gesture === 'none' ? 1 : 0.35) * Number(this.mapping.tracking_strength || '1')
+      ? gesture.tracking * Number(this.mapping.tracking_strength || '1')
       : 0;
     const cx = this.gazeTarget === 'away' ? -0.8 : this.cursor.x;
     this.gaze.x = smooth(this.gaze.x, cx * strength, dt, 14);
@@ -646,19 +670,30 @@ export class CharacterRenderer {
     this.head.y = smooth(this.head.y, this.gaze.y, dt, 4);
     this.write(this.mapping.gazeX, this.gaze.x);
     this.write(this.mapping.gazeY, this.gaze.y);
-    this.write(this.mapping.angleX, this.head.x * 20 + Math.sin(this.elapsed * 0.73) * 1.1);
+    this.write(
+      this.mapping.angleX,
+      this.head.x * 20 +
+        Math.sin(this.elapsed * 0.73) * 1.1 +
+        this.gestureOffset(this.mapping.angleX, gesture.angleX),
+    );
     this.write(
       this.mapping.angleY,
       this.head.y * 13 +
-        (this.gesture === 'nod'
-          ? Math.sin(this.elapsed * 7) * 4 * this.intensity
-          : Math.sin(this.elapsed * 0.91)),
+        Math.sin(this.elapsed * 0.91) +
+        this.gestureOffset(this.mapping.angleY, gesture.angleY),
     );
     this.write(
-      'ParamAngleZ',
-      (this.gesture === 'tilt' ? 8 * this.intensity : 0) + Math.sin(this.elapsed * 0.55) * 1.5,
+      this.mapping.angleZ,
+      Math.sin(this.elapsed * 0.55) * 1.5 + this.gestureOffset(this.mapping.angleZ, gesture.angleZ),
     );
-    this.write(this.mapping.bodyAngle, this.head.x * 3 + Math.sin(this.elapsed * 0.43) * 1.2);
+    this.write(
+      this.mapping.bodyAngle,
+      this.head.x * 3 +
+        Math.sin(this.elapsed * 0.43) * 1.2 +
+        this.gestureOffset(this.mapping.bodyAngle, gesture.bodyX),
+    );
+    this.writeGesture(this.mapping.bodyAngleY, gesture.bodyY);
+    this.writeGesture(this.mapping.bodyAngleZ, gesture.bodyZ);
     this.write(this.mapping.breath, (Math.sin(this.elapsed * 1.4) + 1) / 2);
   }
   private updateMouth(dt: number) {
@@ -804,6 +839,8 @@ export class CharacterRenderer {
     this.emotion = 'calm';
     this.emotionWeights = {};
     this.gesture = 'none';
+    this.gestureIntensity = 0;
+    this.gestureStartedAt = 0;
     this.reactionUntil = 0;
     this.cancelSpeech();
   }

@@ -26,7 +26,7 @@ const report = {
   models: [],
   errors: [],
   limits:
-    'Official sample packages, not ten independent user models. Browser API/visual checks, not native desktop QA or performance results.',
+    'Official sample packages. Browser API/visual checks, not native desktop QA, alpha usage validation or performance results.',
 };
 const publish = () => {
   output.textContent = JSON.stringify(report, null, 2);

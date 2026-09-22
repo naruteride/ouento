@@ -3,7 +3,7 @@
   "sampleBundleCount": 10,
   "characterFamilyCount": 9,
   "nativeImport": {
-    "limits": "공식 샘플 10묶음·9캐릭터 계열이며 독립 사용자 모델 10개, 브라우저 Core/렌더링 또는 양 OS 배포 앱 검증을 뜻하지 않습니다.",
+    "limits": "공식 샘플 10묶음·9캐릭터 계열이며 알파 실사용, 브라우저 Core/렌더링 또는 양 OS 배포 앱 검증을 뜻하지 않습니다.",
     "models": [
       {
         "error": null,
@@ -1695,6 +1695,6 @@
         "peakLive": 10
       }
     },
-    "limits": "API handle counts and short browser checks, not GPU bytes, whole-process memory, native window QA or ten independent user-model alpha acceptance."
+    "limits": "API handle counts and short browser checks, not GPU bytes, whole-process memory, native window QA or alpha usage acceptance."
   }
 }

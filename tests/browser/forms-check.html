@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ouento 입력 보존 검사</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f5f1;
+        font-family: system-ui;
+      }
+      #fixture {
+        padding: 12px 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="fixture">
+      <strong>개발 전용 · 실제 UI 입력 검사</strong>
+      <p>
+        AI·파일 저장 없이 기억 저장 실패/성공을 대체합니다. 저장 결과를 선택하고 기억을 작성하세요.
+      </p>
+      <label
+        >검사할 저장 결과
+        <select id="outcome">
+          <option value="failure">저장 실패</option>
+          <option value="success">저장 성공</option>
+        </select></label
+      >
+      <p id="status" role="status">아직 제출하지 않았습니다.</p>
+    </div>
+    <ouento-app></ouento-app>
+    <script type="module">
+      import '../../src/ui/app.js';
+      const app = document.querySelector('ouento-app');
+      const status = document.querySelector('#status');
+      let writes = 0;
+      app.update({ ready: true, memoryEnabled: true });
+      app.navigate('memory');
+      app.addEventListener('action', async ({ detail }) => {
+        if (detail.type === 'memory-save') {
+          writes++;
+          const failure = document.querySelector('#outcome').value === 'failure';
+          status.textContent = `저장 요청 ${writes}회 · ${Array.from(detail.content).length}자 · 처리 중`;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          if (failure) {
+            app.completeMemorySave(
+              detail.requestId,
+              '검사용 저장 오류입니다. 입력은 그대로 유지됩니다.',
+            );
+            status.textContent = `저장 요청 ${writes}회 · 저장 실패 응답`;
+          } else {
+            app.completeMemorySave(detail.requestId);
+            app.update({
+              memories: [
+                { id: `fixture-${writes}`, content: detail.content, expiresAt: detail.expiresAt },
+              ],
+            });
+            status.textContent = `저장 요청 ${writes}회 · 저장 성공 응답`;
+          }
+        }
+        if (detail.type === 'chat-send')
+          status.textContent = `대화 요청 · ${Array.from(detail.text).length}자`;
+      });
+    </script>
+  </body>
+</html>

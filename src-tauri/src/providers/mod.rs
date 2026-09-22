@@ -382,6 +382,20 @@ mod tests {
         .is_err());
     }
     #[test]
+    fn gesture_amplitude_is_local_output_only() {
+        let input = r#"{"shouldReact":true,"text":"반가워.","emotion":"happy","intensity":0.5,"gaze":"user","gesture":"nod","priority":1}"#;
+        let mut reaction: Reaction = serde_json::from_str(input).unwrap();
+        assert_eq!(reaction.gesture_intensity, None);
+        let mut provider_value: Value = serde_json::from_str(input).unwrap();
+        provider_value["gestureIntensity"] = serde_json::json!(1.0);
+        assert!(serde_json::from_value::<Reaction>(provider_value).is_err());
+        reaction.gesture_intensity = Some(0.25);
+        assert_eq!(
+            serde_json::to_value(reaction).unwrap()["gestureIntensity"],
+            0.25
+        );
+    }
+    #[test]
     fn transport_does_not_accept_truncated_completion() {
         assert!(parse_completion(
             br#"{"choices":[{"finish_reason":"length","message":{"content":"{}"}}]}"#.to_vec()

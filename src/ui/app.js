@@ -177,7 +177,7 @@ const personas = [
     emoji: '✦',
     name: '서툰 다정함',
     subtitle: '툴툴대지만, 늘 곁에',
-    quote: '뭐, 네가 열심히 한 건 알고 있었으니까. …축하해. 정말로.',
+    quote: '붙었네. 그렇게 준비했으니까… 축하해.',
     character: '조금 서툴러도 다정한',
   },
   {
@@ -185,7 +185,7 @@ const personas = [
     emoji: '☾',
     name: '느긋한 고양이',
     subtitle: '말은 적게, 마음은 깊게',
-    quote: '…합격이네. 잘했어. 오늘은 좀 쉬어도 되겠다.',
+    quote: '합격이네. 잘했어. 이제 좀 쉬자.',
     character: '말없이 함께하는',
   },
   {
@@ -193,7 +193,7 @@ const personas = [
     emoji: '☀',
     name: '작은 응원단',
     subtitle: '당신의 기쁨을 가장 먼저',
-    quote: '해냈구나! 정말 축하해. 그동안 애쓴 만큼 오늘은 마음껏 기뻐하자!',
+    quote: '해냈다! 열심히 준비한 만큼 좋은 소식이 왔네!',
     character: '작은 순간도 응원하는',
   },
 ];
@@ -207,7 +207,10 @@ const mappingLabels = {
   gazeY: '눈동자 상하',
   angleX: '고개 좌우',
   angleY: '고개 상하',
-  bodyAngle: '상체 움직임',
+  angleZ: '고개 기울임',
+  bodyAngle: '상체 좌우',
+  bodyAngleY: '상체 상하',
+  bodyAngleZ: '상체 기울임',
   breath: '호흡',
 };
 const expressionLabels = {
@@ -280,6 +283,8 @@ export class OuentoApp extends HTMLElement {
     this._toastTimer = null;
     this._mounted = false;
     this._pageSnapshots = new Map();
+    this._memorySaveSequence = 0;
+    this._memorySaveRequest = null;
   }
 
   connectedCallback() {
@@ -298,12 +303,15 @@ export class OuentoApp extends HTMLElement {
       <main class="main"><div class="page-heading"><div><p class="eyebrow" id="page-eyebrow"></p><h1 id="page-title"></h1><p class="page-description" id="page-description"></p></div><span class="heading-tag" id="heading-tag"></span></div><div id="global-error" hidden></div>
       <div class="workarea"><aside class="companion" aria-label="캐릭터 미리보기"><div class="companion-header"><span class="companion-label">YOUR COMPANION</span><span class="live-badge" id="model-live"><span class="dot"></span>준비 중</span></div><div class="preview-wrap"><div id="character-preview"></div><div class="model-empty" id="model-empty"><div class="empty-orbit">${icon('spark')}</div><strong>처음 만날 준비를 해요</strong><p id="model-status">Live2D 모델을 불러오면<br>이곳에서 만날 수 있어요.</p></div></div><div class="companion-info"><p class="companion-name" id="companion-name">Your companion</p><p class="companion-persona" id="companion-persona">조금 서툴러도 다정한 나의 동반자</p><div class="companion-states"><span class="small-tag" id="character-state">모델 미연결</span><span class="small-tag" id="audio-state">목소리 미설정</span></div></div><div class="companion-footer"><span id="character-footer">작은 움직임, 자연스러운 표정</span><button class="text-button" data-do="open-import">캐릭터 불러오기 ${icon('arrow')}</button></div></aside><section class="page-panel" id="page-panel"></section></div><div id="page-bottom"></div><footer class="footer-meta"><span>당신의 일상에, 조금 더 다정한 순간.</span><span id="platform-label">OUENTO · YOUR DAILY COMPANION</span></footer></main></div></div>
       <dialog class="dialog" id="import-dialog" aria-labelledby="import-title"><div class="dialog-header"><h2 id="import-title">새로운 캐릭터를 만나요</h2><button class="icon-button" data-do="close-import" aria-label="닫기">${icon('close')}</button></div><p class="muted">실행용 Live2D 모델 폴더 또는 ZIP을 선택하세요.</p><div id="import-body"></div></dialog>
-      <dialog class="dialog" id="memory-dialog" aria-labelledby="memory-title"><div class="dialog-header"><h2 id="memory-title">기억 남기기</h2><button class="icon-button" data-do="close-memory" aria-label="닫기">${icon('close')}</button></div><form id="memory-form"><input type="hidden" name="id"><label class="field"><span>기억할 이야기</span><textarea class="field-input" name="content" required maxlength="2000" placeholder="예: 집중할 때는 짧게 응원해 주면 좋아요."></textarea><small class="field-help">저장한 내용은 대화에 활용할 수 있어요.</small></label><label class="field"><span>언제까지 기억할까요?</span><input type="date" name="expiresAt"><small class="field-help">비워 두면 직접 삭제할 때까지 기억해요.</small></label><div class="form-footer"><button class="button" type="button" data-do="close-memory">취소</button><button class="button primary" type="submit">기억 저장</button></div></form></dialog>
+      <dialog class="dialog" id="memory-dialog" aria-labelledby="memory-title"><div class="dialog-header"><h2 id="memory-title">기억 남기기</h2><button class="icon-button" data-do="close-memory" aria-label="닫기">${icon('close')}</button></div><form id="memory-form"><input type="hidden" name="id"><label class="field"><span>기억할 이야기</span><textarea class="field-input" name="content" required maxlength="2000" aria-describedby="memory-content-help" placeholder="예: 집중할 때는 짧게 응원해 주면 좋아요."></textarea><small class="field-help" id="memory-content-help">최대 1,000자. 저장한 내용은 대화에 활용할 수 있어요.</small></label><label class="field"><span>언제까지 기억할까요?</span><input type="date" name="expiresAt"><small class="field-help">비워 두면 직접 삭제할 때까지 기억해요.</small></label><div class="notice error" id="memory-error" role="alert" hidden></div><div class="form-footer"><button class="button" type="button" data-do="close-memory">취소</button><button class="button primary" type="submit">기억 저장</button></div></form></dialog>
       <div id="toast" class="toast" role="status" hidden></div>`;
     this.shadowRoot.addEventListener('click', (event) => this._onClick(event));
     this.shadowRoot.addEventListener('submit', (event) => this._onSubmit(event));
     this.shadowRoot.addEventListener('input', (event) => this._onInput(event));
     this.shadowRoot.addEventListener('change', (event) => this._onChange(event));
+    this.shadowRoot.getElementById('memory-dialog').addEventListener('cancel', (event) => {
+      if (this._memorySaveRequest !== null) event.preventDefault();
+    });
     this.shadowRoot.addEventListener('keydown', (event) => {
       if (
         event.target.matches('#chat-text') &&
@@ -382,6 +390,30 @@ export class OuentoApp extends HTMLElement {
   }
   closeImport() {
     this.shadowRoot.getElementById('import-dialog')?.close();
+  }
+
+  // The controller acknowledges the matching save only after the native API resolves.
+  completeMemorySave(requestId, error = null) {
+    if (requestId !== this._memorySaveRequest || this._memorySaveRequest === null) return;
+    this._memorySaveRequest = null;
+    this._setMemorySaving(false);
+    this._setMemoryError(error == null ? '' : String(error));
+    if (error == null) this.shadowRoot.getElementById('memory-dialog').close();
+    else this.shadowRoot.getElementById('memory-form').elements.content.focus();
+  }
+
+  _setMemorySaving(saving) {
+    const dialog = this.shadowRoot.getElementById('memory-dialog');
+    for (const field of dialog.querySelectorAll('input, textarea, button')) field.disabled = saving;
+    const form = this.shadowRoot.getElementById('memory-form');
+    form.setAttribute('aria-busy', String(saving));
+    form.querySelector('[type="submit"]').textContent = saving ? '기억 저장 중…' : '기억 저장';
+  }
+
+  _setMemoryError(message) {
+    const error = this.shadowRoot.getElementById('memory-error');
+    error.textContent = message;
+    error.hidden = !message;
   }
 
   clearMappingDraft() {
@@ -541,7 +573,7 @@ export class OuentoApp extends HTMLElement {
 
   _chatPage() {
     const d = this._data;
-    return `<section class="chat-panel" aria-label="대화"><div class="chat-title"><h2>우리의 이야기</h2><span class="session-label"><span class="dot ${d.providers.chat.configured ? 'active' : ''}"></span>${d.providers.chat.configured ? '대화할 준비가 됐어요' : 'AI 연결을 기다려요'}</span></div><div class="chat-body" role="log" aria-live="polite" aria-relevant="additions text">${d.messages.length ? d.messages.map((message) => `<article class="message ${['user', 'assistant', 'system'].includes(message.role) ? message.role : 'system'}"><div class="message-meta"><span>${message.role === 'user' ? '나' : message.role === 'assistant' ? escape(d.character.name) : '안내'}</span><span>${escape(message.time || '')}</span></div><div class="message-bubble">${escape(message.content)}</div></article>`).join('') : `<div class="chat-welcome">${icon('flower', 'welcome-symbol')}<h3>별일 없어도 괜찮아요.</h3><p>오늘 있었던 일, 문득 떠오른 생각.<br>어떤 이야기든 들려주세요.</p><div class="prompt-chips"><button class="prompt-chip" data-prompt="오늘 하루는 어땠어?">오늘 하루는 어땠어?</button><button class="prompt-chip" data-prompt="잠깐 쉬어 갈까?">잠깐 쉬어 갈까?</button><button class="prompt-chip" data-prompt="나 좀 응원해 줘.">나 좀 응원해 줘</button></div>${!d.providers.chat.configured ? '<p style="margin-top:21px"><button class="text-button" data-page="settings">대화를 시작하려면 AI를 연결해 주세요 →</button></p>' : ''}</div>`}${d.busy ? '<div class="thinking" role="status"><i></i><i></i><i></i><span>이야기를 듣고 있어요</span></div>' : ''}</div><div class="composer-area"><form class="composer" id="chat-form"><textarea id="chat-text" name="text" rows="2" maxlength="8000" placeholder="오늘은 어떤 하루였나요?" aria-label="대화 메시지" required></textarea><button class="send-button" type="submit" aria-label="메시지 보내기" ${disabled(!d.ready)}>${icon('up')}</button></form><div class="composer-tools"><button class="voice-button" data-do="voice-toggle" aria-pressed="${d.recording}">${icon('mic')}${d.recording ? '듣고 있어요 · 눌러서 전송' : '목소리로 이야기하기'}</button>${d.busy || d.speaking ? '<button class="cancel-button" data-do="speech-cancel">말하기 중단</button>' : '<span>Enter 보내기 · Shift + Enter 줄바꿈</span>'}</div></div></section>`;
+    return `<section class="chat-panel" aria-label="대화"><div class="chat-title"><h2>우리의 이야기</h2><span class="session-label"><span class="dot ${d.providers.chat.configured ? 'active' : ''}"></span>${d.providers.chat.configured ? '대화할 준비가 됐어요' : 'AI 연결을 기다려요'}</span></div><div class="chat-body" role="log" aria-live="polite" aria-relevant="additions text">${d.messages.length ? d.messages.map((message) => `<article class="message ${['user', 'assistant', 'system'].includes(message.role) ? message.role : 'system'}"><div class="message-meta"><span>${message.role === 'user' ? '나' : message.role === 'assistant' ? escape(d.character.name) : '안내'}</span><span>${escape(message.time || '')}</span></div><div class="message-bubble">${escape(message.content)}</div></article>`).join('') : `<div class="chat-welcome">${icon('flower', 'welcome-symbol')}<h3>별일 없어도 괜찮아요.</h3><p>오늘 있었던 일, 문득 떠오른 생각.<br>어떤 이야기든 들려주세요.</p><div class="prompt-chips"><button class="prompt-chip" data-prompt="오늘 하루는 어땠어?">오늘 하루는 어땠어?</button><button class="prompt-chip" data-prompt="잠깐 쉬어 갈까?">잠깐 쉬어 갈까?</button><button class="prompt-chip" data-prompt="나 좀 응원해 줘.">나 좀 응원해 줘</button></div>${!d.providers.chat.configured ? '<p style="margin-top:21px"><button class="text-button" data-page="settings">대화를 시작하려면 AI를 연결해 주세요 →</button></p>' : ''}</div>`}${d.busy ? '<div class="thinking" role="status"><i></i><i></i><i></i><span>이야기를 듣고 있어요</span></div>' : ''}</div><div class="composer-area"><form class="composer" id="chat-form"><textarea id="chat-text" name="text" rows="2" maxlength="8000" placeholder="오늘은 어떤 하루였나요?" aria-label="대화 메시지" aria-describedby="chat-limit" required></textarea><button class="send-button" type="submit" aria-label="메시지 보내기" ${disabled(!d.ready)}>${icon('up')}</button></form><p class="field-help" id="chat-limit">최대 4,000자까지 보낼 수 있어요.</p><div class="composer-tools"><button class="voice-button" data-do="voice-toggle" aria-pressed="${d.recording}">${icon('mic')}${d.recording ? '듣고 있어요 · 눌러서 전송' : '목소리로 이야기하기'}</button>${d.busy || d.speaking ? '<button class="cancel-button" data-do="speech-cancel">말하기 중단</button>' : '<span>Enter 보내기 · Shift + Enter 줄바꿈</span>'}</div></div></section>`;
   }
 
   _characterPage() {
@@ -663,6 +695,8 @@ export class OuentoApp extends HTMLElement {
   }
 
   _openMemory(id) {
+    if (this._memorySaveRequest !== null) return;
+    this._setMemoryError('');
     const item = this._data.memories.find((memory) => memory.id === id);
     const form = this.shadowRoot.getElementById('memory-form');
     form.elements.id.value = item?.id || '';
@@ -709,7 +743,8 @@ export class OuentoApp extends HTMLElement {
         this.shadowRoot.getElementById('import-dialog').close();
         break;
       case 'close-memory':
-        this.shadowRoot.getElementById('memory-dialog').close();
+        if (this._memorySaveRequest === null)
+          this.shadowRoot.getElementById('memory-dialog').close();
         break;
       case 'memory-new':
         this._openMemory();
@@ -827,6 +862,11 @@ export class OuentoApp extends HTMLElement {
       case 'chat-form': {
         const text = value('text');
         if (!text) return;
+        if (Array.from(text).length > 4000) {
+          this.notify('메시지는 1~4,000자로 입력해 주세요.', 'error');
+          form.elements.text.focus();
+          return;
+        }
         form.reset();
         clearDirty();
         this._emit('chat-send', { text });
@@ -890,17 +930,38 @@ export class OuentoApp extends HTMLElement {
         });
         break;
       case 'memory-form': {
+        if (this._memorySaveRequest !== null) return;
         const content = value('content');
-        if (!content) return;
-        const expiresAt = value('expiresAt')
-          ? new Date(`${value('expiresAt')}T23:59:59`).toISOString()
-          : null;
-        if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
-          this.notify('만료일은 오늘 이후로 선택해 주세요.', 'error');
+        if (!content || Array.from(content).length > 1000) {
+          this._setMemoryError('기억은 1~1,000자로 입력해 주세요.');
+          form.elements.content.focus();
           return;
         }
-        this._emit('memory-save', { id: value('id') || null, content, expiresAt });
-        this.shadowRoot.getElementById('memory-dialog').close();
+        const expiryValue = value('expiresAt');
+        const expiry = expiryValue ? new Date(`${expiryValue}T23:59:59`) : null;
+        if (
+          expiry &&
+          (!Number.isFinite(expiry.getTime()) ||
+            expiry.getTime() <= Date.now() ||
+            `${expiry.getFullYear()}-${String(expiry.getMonth() + 1).padStart(2, '0')}-${String(expiry.getDate()).padStart(2, '0')}` !==
+              expiryValue)
+        ) {
+          this._setMemoryError('만료일은 오늘 이후의 유효한 날짜로 선택해 주세요.');
+          form.elements.expiresAt.focus();
+          return;
+        }
+        const requestId = ++this._memorySaveSequence;
+        this._memorySaveRequest = requestId;
+        this._setMemoryError('');
+        // HTML maxlength counts UTF-16 units; the checks above match Rust Unicode scalars.
+        const payload = {
+          id: value('id') || null,
+          content,
+          expiresAt: expiry?.toISOString() ?? null,
+          requestId,
+        };
+        this._setMemorySaving(true);
+        this._emit('memory-save', payload);
         break;
       }
       case 'settings-form':

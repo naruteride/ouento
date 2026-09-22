@@ -16,6 +16,7 @@ struct LastInputInfo {
 extern "system" {
     fn GetCursorPos(point: *mut Point) -> i32;
     fn GetAsyncKeyState(key: i32) -> i16;
+    fn GetSystemMetrics(index: i32) -> i32;
     fn GetLastInputInfo(info: *mut LastInputInfo) -> i32;
     fn OpenInputDesktop(flags: u32, inherit: i32, access: u32) -> Handle;
     fn GetUserObjectInformationW(
@@ -54,7 +55,19 @@ pub fn cursor_position() -> Result<CursorSample, String> {
 }
 
 pub fn primary_button_down() -> bool {
-    unsafe { GetAsyncKeyState(1) < 0 }
+    const SM_SWAPBUTTON: i32 = 23;
+    const VK_LBUTTON: i32 = 1;
+    const VK_RBUTTON: i32 = 2;
+    unsafe {
+        // GetAsyncKeyState reports physical buttons, even when Windows maps the
+        // right physical button to the primary action.
+        let button = if GetSystemMetrics(SM_SWAPBUTTON) != 0 {
+            VK_RBUTTON
+        } else {
+            VK_LBUTTON
+        };
+        GetAsyncKeyState(button) < 0
+    }
 }
 
 fn restricted_desktop() -> bool {

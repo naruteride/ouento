@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ouento 실제 WebGL 몸짓 검사</title>
+    <style>
+      body {
+        margin: 24px;
+        font: 15px/1.5 system-ui;
+        color: #242035;
+        background: #f7f6f2;
+      }
+      button {
+        font: inherit;
+        padding: 10px 16px;
+        margin-right: 8px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+      }
+      #stage {
+        width: 280px;
+        height: 360px;
+        position: sticky;
+        top: 16px;
+      }
+      #stage,
+      figure canvas {
+        background-color: #dddfe8;
+        background-image: conic-gradient(
+          #f4f3f6 25%,
+          transparent 0 50%,
+          #f4f3f6 0 75%,
+          transparent 0
+        );
+        background-size: 20px 20px;
+        border-radius: 12px;
+      }
+      #status {
+        font-weight: 600;
+      }
+      #gallery section {
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        background: white;
+        border-radius: 12px;
+      }
+      h2 {
+        font-size: 17px;
+        margin: 0 0 4px;
+      }
+      .frames {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      figure {
+        margin: 0;
+      }
+      figure canvas {
+        display: block;
+        width: 112px;
+        height: 144px;
+      }
+      figcaption {
+        text-align: center;
+        font-size: 12px;
+      }
+      .result {
+        font-size: 13px;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: white;
+        padding: 16px;
+        border-radius: 12px;
+      }
+      @media (max-width: 700px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+        #stage {
+          position: static;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>실제 WebGL 몸짓 검사</h1>
+    <p>
+      Mao·Haru·Kei의 끄덕임, 기울임, 작은 상체 리듬, 고개 돌림을 각각 재생합니다. 약 40~60초가
+      걸립니다.
+    </p>
+    <p>
+      제품 렌더러와 SDK가 그린 실제 프레임을 기록합니다. 비교를 위해 커서·깜박임을 고정하며
+      마이크·AI·네이티브 기능·오디오 재생은 사용하지 않습니다. 자동 수치 검사는 외형의
+      자연스러움이나 두 OS 배포 앱 검증을 대신하지 않습니다.
+    </p>
+    <button id="run">3개 모델 · 12개 몸짓 검사</button><button id="stop" disabled>중단</button>
+    <p id="status" role="status">준비됨</p>
+    <main>
+      <div id="stage" aria-label="실제 WebGL 캐릭터"></div>
+      <div>
+        <div id="gallery"></div>
+        <pre id="report">실행하면 프레임별 오류·범위·복귀 결과를 기록합니다.</pre>
+      </div>
+    </main>
+    <script src="/vendor/cubism-core/live2dcubismcore.min.js"></script>
+    <script src="/vendor/motionsync-core/CRI/live2dcubismmotionsynccore.min.js"></script>
+    <script type="module" src="./gesture-check.js"></script>
+  </body>
+</html>

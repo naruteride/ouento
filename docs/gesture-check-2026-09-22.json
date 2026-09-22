@@ -1,0 +1,50 @@
+{
+  "startedAt": "2026-09-22T06:29:11.832Z",
+  "finishedAt": "2026-09-22T06:29:48.826Z",
+  "fixture": "tests/browser/gesture-check.html",
+  "environment": {
+    "host": "macOS 26.6.2 arm64",
+    "browser": "Codex In-app Browser, Chrome 152.0.0.0",
+    "devicePixelRatio": 2,
+    "canvasCss": [280, 360],
+    "fpsSetting": 30
+  },
+  "conditions": {
+    "gestureIntensity": 0.8,
+    "emotionIntensity": 0,
+    "cursorAndBlinkFixed": true,
+    "audioOrAiUsed": false,
+    "method": "Observe actual SDK drawModel frames. Compare gesture axes with the product's none gesture at the same elapsed time and head state; restore all Core parameters after the diagnostic probe."
+  },
+  "gpuDrawCalls": 112546,
+  "columns": ["model", "gesture", "frames", "gpuDrawCalls", "returnAtSeconds"],
+  "cases": [
+    ["Mao", "nod", 90, 15930, 3.0167],
+    ["Mao", "tilt", 91, 16107, 3.0333],
+    ["Mao", "smallBounce", 91, 16107, 3.0332],
+    ["Mao", "lookAway", 91, 16107, 3.0333],
+    ["Haru", "nod", 90, 6300, 3],
+    ["Haru", "tilt", 91, 6370, 3.0332],
+    ["Haru", "smallBounce", 91, 6370, 3.0333],
+    ["Haru", "lookAway", 91, 6370, 3.0332],
+    ["Kei", "nod", 90, 5580, 3],
+    ["Kei", "tilt", 91, 5642, 3.0333],
+    ["Kei", "smallBounce", 91, 5642, 3.033],
+    ["Kei", "lookAway", 90, 5580, 3]
+  ],
+  "allCases": {
+    "glErrors": 0,
+    "nonfiniteOrRangeErrors": 0,
+    "modelMatrixStable": true,
+    "expectedAxesMoved": true,
+    "returnMaxError": 0,
+    "passed": true
+  },
+  "errors": [],
+  "limitations": [
+    "Browser diagnostic, not native WebKit or WebView2 validation.",
+    "Three official models; not alpha usage validation.",
+    "Short motion and numeric return checks do not establish subjective naturalness, audio synchronization or long-run performance.",
+    "CPU parameter probes and frame copies are test instrumentation excluded from the product build."
+  ]
+}
