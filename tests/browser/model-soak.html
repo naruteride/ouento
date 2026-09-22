@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ouento 실제 WebGL 모델 교체 검사</title>
+    <style>
+      body {
+        margin: 24px;
+        font: 15px/1.5 system-ui;
+        color: #242035;
+        background: #f7f6f2;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 360px minmax(400px, 1fr);
+        gap: 24px;
+      }
+      #stage {
+        width: 360px;
+        height: 500px;
+        background: #eceae5;
+        border-radius: 16px;
+      }
+      button {
+        font: inherit;
+        padding: 10px 16px;
+        margin: 0 8px 12px 0;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        padding: 16px;
+        background: white;
+        border-radius: 12px;
+      }
+      #status {
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>실제 WebGL 모델 교체 검사</h1>
+    <p>
+      개발 서버 전용 검사입니다. 실제 제품 렌더러·Mao/Haru/Kei·한국어 음원으로 50회 로드하고 자원
+      반환을 셉니다. 소리는 음소거하며 마이크·AI·화면 관찰은 사용하지 않습니다.
+    </p>
+    <p>
+      브라우저의 API 핸들 수와 프레임 간격은 두 OS 배포 앱의 CPU·GPU·메모리·8시간 시험을 대신하지
+      않습니다.
+    </p>
+    <button id="run">50회 검사 시작</button><button id="stop" disabled>검사 중단</button>
+    <p id="status" role="status">준비됨</p>
+    <main>
+      <div id="stage" aria-label="검사 중인 Live2D 모델"></div>
+      <pre id="report">검사를 시작하면 실제 측정 결과가 표시됩니다.</pre>
+    </main>
+    <script src="/vendor/cubism-core/live2dcubismcore.min.js"></script>
+    <script src="/vendor/motionsync-core/CRI/live2dcubismmotionsynccore.min.js"></script>
+    <script type="module" src="./model-soak.js"></script>
+  </body>
+</html>

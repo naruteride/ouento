@@ -1,0 +1,36 @@
+{
+  "name": "ouento",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "tauri": "node scripts/tauri.mjs",
+    "desktop": "node scripts/tauri.mjs dev",
+    "desktop:build": "node scripts/tauri.mjs build",
+    "test": "node --test tests/*.test.js",
+    "check": "tsc --noEmit",
+    "assets:setup": "node scripts/setup-assets.mjs",
+    "format": "prettier --write src scripts tests *.html *.json",
+    "format:check": "prettier --check src scripts tests *.html *.json",
+    "test:models": "node scripts/check-models.mjs && node scripts/check-motion-sync.mjs",
+    "test:compatibility": "node scripts/check-import-compatibility.mjs",
+    "test:controllers": "node scripts/check-controller.mjs && node scripts/check-model-preview.mjs && node scripts/check-observation-controller.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.5",
+    "fflate": "0.8.3",
+    "prettier": "3.9.8",
+    "typescript": "5.9.3",
+    "vite": "6.4.3"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Ouento",
+  "version": "0.1.0",
+  "identifier": "com.ouento.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Ouento",
+        "width": 1140,
+        "height": 780,
+        "minWidth": 820,
+        "minHeight": 600,
+        "center": true,
+        "backgroundColor": "#f6f5f1"
+      },
+      {
+        "label": "companion",
+        "url": "companion.html",
+        "title": "Ouento Companion",
+        "width": 420,
+        "height": 580,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost; worker-src 'self' blob:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "infoPlist": "Info.plist"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

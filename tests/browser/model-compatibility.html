@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ouento 공식 샘플 호환성 검사</title>
+    <style>
+      body {
+        margin: 24px;
+        font: 15px/1.5 system-ui;
+        color: #242035;
+        background: #f7f6f2;
+      }
+      button {
+        font: inherit;
+        padding: 10px 16px;
+      }
+      #stage {
+        width: 300px;
+        height: 400px;
+        background: #eceae5;
+        border-radius: 12px;
+      }
+      #gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 12px;
+      }
+      figure {
+        margin: 0;
+        padding: 10px;
+        border: 1px solid #d9d6de;
+        border-radius: 12px;
+        background: white;
+      }
+      figure canvas {
+        width: 100%;
+        height: 180px;
+        object-fit: contain;
+        background: #eceae5;
+      }
+      figcaption {
+        white-space: pre-line;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        padding: 16px;
+        background: white;
+      }
+      #status {
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>공식 샘플 호환성 검사</h1>
+    <p>
+      개발 전용입니다. 제품의 파일 검사·가져오기에서 내보낸 검증 자산을 실제 렌더러로 읽습니다.
+      마이크·화면 관찰·AI 없이 공식 한국어 음원을 음소거 재생합니다.
+    </p>
+    <p>
+      Kei의 두 내보내기는 같은 캐릭터 계열입니다. 이 검사는 독립 사용자 모델 10개 또는 macOS/Windows
+      배포 앱의 시청각 검증을 대신하지 않습니다.
+    </p>
+    <button id="run">모든 샘플 검사</button>
+    <p id="status" role="status">준비됨</p>
+    <div id="stage" aria-label="현재 검사 중인 Live2D 모델"></div>
+    <h2>실제 렌더링 결과</h2>
+    <div id="gallery"></div>
+    <pre id="report">먼저 node scripts/check-import-compatibility.mjs를 실행하세요.</pre>
+    <script src="/vendor/cubism-core/live2dcubismcore.min.js"></script>
+    <script src="/vendor/motionsync-core/CRI/live2dcubismmotionsynccore.min.js"></script>
+    <script type="module" src="./model-compatibility.js"></script>
+  </body>
+</html>

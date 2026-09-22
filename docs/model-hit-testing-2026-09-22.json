@@ -1,0 +1,753 @@
+{
+  "date": "2026-09-22",
+  "environment": {
+    "host": "macOS 26.6.2 arm64",
+    "browser": "Codex In-app Browser",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "devicePixelRatio": 2,
+    "canvasCss": [
+      300,
+      400
+    ],
+    "drawingBuffer": [
+      600,
+      800
+    ]
+  },
+  "method": {
+    "samplesPerFrame": 3350,
+    "gridStart": 6,
+    "gridStep": 12,
+    "pixelCenter": true,
+    "hitThreshold": 0.05,
+    "rawAlphaThreshold": 12,
+    "neighborhood": [
+      3,
+      3
+    ],
+    "clearMaximumAlpha": 2,
+    "opaqueMinimumAlpha": 128,
+    "sameFrameBaseline": true,
+    "elapsedIncludesBaseline": true,
+    "productGpuReadback": false
+  },
+  "code": {
+    "baselineSha256": "a3d8f21d63ff78e018d98ef842d012145e531533363ae8a9b356248eda505126",
+    "hitTestSha256": "35d83651d48b352f3ae28e4f427e83ac9b9969b8c4ed33043ce95318c606ca7e",
+    "rendererSha256": "6c6f503d8dcb180c479d2a68d78aac9f2e13bc8245eb52dd85b1c242e8476410",
+    "diagnosticAtMeasurementSha256": "9c6effe2d905ee0547b094eb59744ff608b6692196cc0bac86d79fa7d3ea0f17"
+  },
+  "assets": [
+    {
+      "name": "Haru",
+      "source": {
+        "package": "CubismSdkForWeb-5-r.5",
+        "path": ".cache/CubismSdkForWeb-5-r.5/Samples/Resources/Haru",
+        "archive": ".cache/downloads/CubismSdkForWeb-5-r.5.zip",
+        "url": "https://cubism.live2d.com/sdk-web/bin/CubismSdkForWeb-5-r.5.zip",
+        "archiveSha256": "67064a7fb1812cf502f5c4a03bfe12cc638c75a621bb4acf06bb28763df06ba0",
+        "verifiedAgainstArchive": true,
+        "treeSha256": "002bea83252a0ec44d09dc44fd081e3718b0b2f38f1ee890bad6fa8c0d159773",
+        "treeHashMethod": "SHA256(sorted UTF-8 path + NUL + decimal bytes + NUL + file SHA256 + LF)",
+        "modelDefinitionSha256": "5a41969802b8f9019ca731b07d918fc137e6a61eb9943bdd3f532aeaa0936f8c",
+        "fileCount": 47,
+        "bytes": 4277148
+      },
+      "render": {
+        "assetBaseUrl": "/.cache/model-compatibility/render/Haru/",
+        "assets": [
+          {
+            "bytes": 1526786,
+            "path": "Haru.2048/texture_00.png",
+            "sha256": "30fce81e6b2d69fb99e8d1b5f391a6e0240f671095e491e9bbe24ddd7c7f434d"
+          },
+          {
+            "bytes": 1188664,
+            "path": "Haru.2048/texture_01.png",
+            "sha256": "e1e977447ee7e6e347f1b96b9103ae269e6f4e4a8cf38068d161537415cc51c8"
+          },
+          {
+            "bytes": 5536,
+            "path": "Haru.cdi3.json",
+            "sha256": "f0b7b68e8404fb2a327f77515388f9f2418d038e3eb98a7ecff89818c3dd4e97"
+          },
+          {
+            "bytes": 384704,
+            "path": "Haru.moc3",
+            "sha256": "aa59f7a3dc3b30b23b5f10afd9192ed755e4d01dc9a12442d99b972a418e2543"
+          },
+          {
+            "bytes": 1526,
+            "path": "Haru.model3.json",
+            "sha256": "ad09ca96f655dc0ad909747c0b87d2a107fc60d7e1020c080f71af08b7cdc1a3"
+          },
+          {
+            "bytes": 5914,
+            "path": "Haru.physics3.json",
+            "sha256": "b09a654759a0a0a49998a263757b10f310377adab4b8a281ae5c70902a8a7d1f"
+          },
+          {
+            "bytes": 274,
+            "path": "Haru.pose3.json",
+            "sha256": "cd1c1e2c0faac3bf0c42fdf1a4d5a064ebd5e1f2dc4116a9a7c723b948818ef6"
+          },
+          {
+            "bytes": 313,
+            "path": "Haru.userdata3.json",
+            "sha256": "6d001365965cdabd9fb36cffa9583c9e3eff20331d791c00064c4f9246ca2893"
+          },
+          {
+            "bytes": 124,
+            "path": "expressions/F01.exp3.json",
+            "sha256": "b143d37d24af8fa5d619e333e791facd87d6396ab75e09fa9051e760f8ff96e7"
+          },
+          {
+            "bytes": 464,
+            "path": "expressions/F02.exp3.json",
+            "sha256": "c0bd4f923b12f40f8ad778766cf48a260054ff346156aaee062dcad788053063"
+          },
+          {
+            "bytes": 739,
+            "path": "expressions/F03.exp3.json",
+            "sha256": "cdea71773205e6299155820c12afe20c15dcf53f0e73da7a30c364fe5d16d38c"
+          },
+          {
+            "bytes": 841,
+            "path": "expressions/F04.exp3.json",
+            "sha256": "354c58609b64a74daf8d7e37b4d28a365548aa5ba1bf941ec4d8db4bd3bb43bd"
+          },
+          {
+            "bytes": 474,
+            "path": "expressions/F05.exp3.json",
+            "sha256": "4f43af57229467492fab13a88f600b741f42887493e993b6ec9f558688d2dcea"
+          },
+          {
+            "bytes": 475,
+            "path": "expressions/F06.exp3.json",
+            "sha256": "1bf9ad6a640b8009d429d883718b2bf2d0091b380c63ca1c65326bdbc17105aa"
+          },
+          {
+            "bytes": 907,
+            "path": "expressions/F07.exp3.json",
+            "sha256": "77e3b941e2525aff0308ed82998e6b4356c896e97d9411c528f98fd4a753d685"
+          },
+          {
+            "bytes": 421,
+            "path": "expressions/F08.exp3.json",
+            "sha256": "be652831b79458fd3f9d55b28c15b0e93d551dd730c5e1053e23d238fe879a21"
+          },
+          {
+            "bytes": 21183,
+            "path": "motions/haru_g_idle.motion3.json",
+            "sha256": "8a4fac459abf35dfb049188e4330d485a9fce54ae6111625f4ffae4d9b03abfb"
+          },
+          {
+            "bytes": 15118,
+            "path": "motions/haru_g_m06.motion3.json",
+            "sha256": "311c544c67282cbc40ac1e0287751b20a7f49a46f4eea989b7071efc3188053c"
+          },
+          {
+            "bytes": 25066,
+            "path": "motions/haru_g_m09.motion3.json",
+            "sha256": "d6c8abb01dcfee8246cccbe7a437f025cb31884f8408f3207e1a6e4139888e45"
+          },
+          {
+            "bytes": 13540,
+            "path": "motions/haru_g_m15.motion3.json",
+            "sha256": "4383147bd61a7bd2d990591512bfe29eea743f93868e8679ffed16e588628088"
+          },
+          {
+            "bytes": 23651,
+            "path": "motions/haru_g_m20.motion3.json",
+            "sha256": "536e467d6533c0883b2ad6c8915bc632b4d4188fc3d3abb19cc6b4f5fd12ddb9"
+          },
+          {
+            "bytes": 23275,
+            "path": "motions/haru_g_m26.motion3.json",
+            "sha256": "2b20fbbf31439a5792c808085ecd4c9dc5addeb6195c6d113a25e77f7acc0f4f"
+          },
+          {
+            "bytes": 111354,
+            "path": "sounds/haru_Info_04.wav",
+            "sha256": "df9bdccee25492b1787bde80877a0bbbe442c71385083ce63987ff4d7aba456d"
+          },
+          {
+            "bytes": 267922,
+            "path": "sounds/haru_Info_14.wav",
+            "sha256": "a1723f7f6a7858882091d50b4762f063e577a671630b0d910b429c49804fa0c7"
+          },
+          {
+            "bytes": 142374,
+            "path": "sounds/haru_normal_6.wav",
+            "sha256": "7cbee57fa4a59bf5e645b19408df0a1869a4d2d7234d5bfd8e0849262dd39c6d"
+          },
+          {
+            "bytes": 138862,
+            "path": "sounds/haru_talk_13.wav",
+            "sha256": "a0890e39bd46e45469e6ea3da96859957f161bbef19146591c8437ed57d0bb0f"
+          }
+        ],
+        "name": "Haru",
+        "url": "/.cache/model-compatibility/render/Haru/Haru.model3.json"
+      }
+    },
+    {
+      "name": "Mao",
+      "source": {
+        "package": "CubismSdkForWeb-5-r.5",
+        "path": ".cache/CubismSdkForWeb-5-r.5/Samples/Resources/Mao",
+        "archive": ".cache/downloads/CubismSdkForWeb-5-r.5.zip",
+        "url": "https://cubism.live2d.com/sdk-web/bin/CubismSdkForWeb-5-r.5.zip",
+        "archiveSha256": "67064a7fb1812cf502f5c4a03bfe12cc638c75a621bb4acf06bb28763df06ba0",
+        "verifiedAgainstArchive": true,
+        "treeSha256": "b9f56560f12a8c88f251353f986f1a577ce25118761cfb40a42fb3b9bdf1cb7d",
+        "treeHashMethod": "SHA256(sorted UTF-8 path + NUL + decimal bytes + NUL + file SHA256 + LF)",
+        "modelDefinitionSha256": "d5fb29f93ef3cf3eba96b5aa9538eca063abbebee81a8d2dbeecea0cef4fecba",
+        "fileCount": 22,
+        "bytes": 4321713
+      },
+      "render": {
+        "assetBaseUrl": "/.cache/model-compatibility/render/Mao/",
+        "assets": [
+          {
+            "bytes": 3130953,
+            "path": "Mao.2048/texture_00.png",
+            "sha256": "0b97283d69e62d346bcca25f8a91a5dd477f2e668ad9801b15fa7f108631c624"
+          },
+          {
+            "bytes": 16797,
+            "path": "Mao.cdi3.json",
+            "sha256": "f261069f302c013f1c60b48045aa4bf5ac2cb086ebb54917f7e5c3f47e5c8f81"
+          },
+          {
+            "bytes": 879680,
+            "path": "Mao.moc3",
+            "sha256": "ad5195b39e35e0da8ba0c825ad9cc2d60571502007f6f7d4f00963b768bb90d8"
+          },
+          {
+            "bytes": 1228,
+            "path": "Mao.model3.json",
+            "sha256": "94594f9b8ea1d8ccab7d0f8ef4939c74a363a5efa420f63510cafbc19c10520e"
+          },
+          {
+            "bytes": 21838,
+            "path": "Mao.physics3.json",
+            "sha256": "27de73695ca6418a84953a0b2776e78160f9d0b988521e9bbfa02ff913f20a6d"
+          },
+          {
+            "bytes": 254,
+            "path": "Mao.pose3.json",
+            "sha256": "efac160eccb7183ee6555d4e53a739042e1c55b92f59a99c2e4bed8e73a5ab91"
+          },
+          {
+            "bytes": 1981,
+            "path": "expressions/exp_01.exp3.json",
+            "sha256": "afbe54559e428acdaf43190d1c497792048c35ed37979f33d9a37c70181ddf5b"
+          },
+          {
+            "bytes": 1981,
+            "path": "expressions/exp_02.exp3.json",
+            "sha256": "6d35132627f9e362e526c0ce8c2152ece2b305c9abd3368da43460c2af8538f6"
+          },
+          {
+            "bytes": 1981,
+            "path": "expressions/exp_03.exp3.json",
+            "sha256": "460a3077d61adfdd1e6b9a062d0d7c3fcc2fb74c80f67ec3649982a9fab49bee"
+          },
+          {
+            "bytes": 1985,
+            "path": "expressions/exp_04.exp3.json",
+            "sha256": "abad61f4ec7f1a157d6b914643e5bd4ffb29964e67f538cace420ebc9f69a716"
+          },
+          {
+            "bytes": 1986,
+            "path": "expressions/exp_05.exp3.json",
+            "sha256": "331fe0d9c78861496a9cc9acba9650f295a72af8c36df7036ab8a372840d2cc1"
+          },
+          {
+            "bytes": 1985,
+            "path": "expressions/exp_06.exp3.json",
+            "sha256": "52f1e391008d61efb17a33602c004a637a42bdb8af8aca3d2319ac5dac215ed1"
+          },
+          {
+            "bytes": 1987,
+            "path": "expressions/exp_07.exp3.json",
+            "sha256": "8bf587d3d7bef509166c8ff95cc9f47c23c895eaf55f9d95110263e44452a53a"
+          },
+          {
+            "bytes": 1982,
+            "path": "expressions/exp_08.exp3.json",
+            "sha256": "761190452e48d22727fce91e76270af2c27b0bb0ee3d04b2c6b0dc6cec49f88d"
+          },
+          {
+            "bytes": 27661,
+            "path": "motions/mtn_01.motion3.json",
+            "sha256": "4a17c9b0b4ffd42ee5b8386cba0ae18916953ac693d79f44cd831bf5d59877f6"
+          },
+          {
+            "bytes": 24274,
+            "path": "motions/mtn_02.motion3.json",
+            "sha256": "aa8c78c03f1d5fe143eedecfb7d077e7e4a7804c93723ba661eef2dd6a5d5ae0"
+          },
+          {
+            "bytes": 22934,
+            "path": "motions/mtn_03.motion3.json",
+            "sha256": "e31eab8c371a253322c68968dbe5895e3029562f31a5b8d277012e94b0a6badd"
+          },
+          {
+            "bytes": 27346,
+            "path": "motions/mtn_04.motion3.json",
+            "sha256": "a95f67d35c81755dee7f3be1e5e60171f090026725f628c99a1e3585985a1ac1"
+          },
+          {
+            "bytes": 28330,
+            "path": "motions/sample_01.motion3.json",
+            "sha256": "21293d1d7c91f8d8b055f5215274df663e345a198517ebf8e3d26613ba37324a"
+          },
+          {
+            "bytes": 34229,
+            "path": "motions/special_01.motion3.json",
+            "sha256": "141320d2e8913097156bf61aa2c27cd51ffcf8ba5d288172da288d2afcc164db"
+          },
+          {
+            "bytes": 41809,
+            "path": "motions/special_02.motion3.json",
+            "sha256": "68e6e12c14d2c06504891971dcdce7771637aedbda9ef5edc616fd4f6972d20c"
+          },
+          {
+            "bytes": 48041,
+            "path": "motions/special_03.motion3.json",
+            "sha256": "fe6b990b6d26a48955c0b33e27c3de8e020c98d2d06be41dcdfecdd053e6dd0f"
+          }
+        ],
+        "name": "Mao",
+        "url": "/.cache/model-compatibility/render/Mao/Mao.model3.json"
+      }
+    },
+    {
+      "name": "Ren",
+      "source": {
+        "package": "CubismSdkForWeb-5-r.5",
+        "path": ".cache/CubismSdkForWeb-5-r.5/Samples/Resources/Ren",
+        "archive": ".cache/downloads/CubismSdkForWeb-5-r.5.zip",
+        "url": "https://cubism.live2d.com/sdk-web/bin/CubismSdkForWeb-5-r.5.zip",
+        "archiveSha256": "67064a7fb1812cf502f5c4a03bfe12cc638c75a621bb4acf06bb28763df06ba0",
+        "verifiedAgainstArchive": true,
+        "treeSha256": "fd5fc59cf96bc7934ac63933d1d010d2434ca36ca1fff2731155dc488228b84e",
+        "treeHashMethod": "SHA256(sorted UTF-8 path + NUL + decimal bytes + NUL + file SHA256 + LF)",
+        "modelDefinitionSha256": "6d003c1d34c17a60c17556e8b27c017d9cad09a381a9b35db74a4df52363e630",
+        "fileCount": 13,
+        "bytes": 2530402
+      },
+      "render": {
+        "assetBaseUrl": "/.cache/model-compatibility/render/Ren/",
+        "assets": [
+          {
+            "bytes": 1470558,
+            "path": "Ren.2048/texture_00.png",
+            "sha256": "daa6cc507efe49ccf185b164d458f0d68d546426d41528e7faf075f6902b9e9e"
+          },
+          {
+            "bytes": 11113,
+            "path": "Ren.cdi3.json",
+            "sha256": "aae40f11bff2d0debeacc3dd9c57f604a5e5bf8f526ef2408bc941779edac422"
+          },
+          {
+            "bytes": 915200,
+            "path": "Ren.moc3",
+            "sha256": "a9ccf7d6b2f4f16c8b13da29b9b4f34dc865ba9c8ad88a0388530e7f2d6cc533"
+          },
+          {
+            "bytes": 835,
+            "path": "Ren.model3.json",
+            "sha256": "0812db04e45939112c19558eb60cb61fcf09f71c2788e6b9a1da306cb5764e62"
+          },
+          {
+            "bytes": 20679,
+            "path": "Ren.physics3.json",
+            "sha256": "4890844caff47d7bfed200ad27b39688343a4d10e581f630b1e8cd3f3258586b"
+          },
+          {
+            "bytes": 1045,
+            "path": "expressions/exp_01.exp3.json",
+            "sha256": "0798ad8b8903b383f5d37f4bcbb1157d7fab3042a5b26e7b1af4e8a7903d4e56"
+          },
+          {
+            "bytes": 1047,
+            "path": "expressions/exp_02.exp3.json",
+            "sha256": "34b818b9f74c071bab9a52c482200049a170e99df83bdca40cdc3db07c39fb57"
+          },
+          {
+            "bytes": 1047,
+            "path": "expressions/exp_03.exp3.json",
+            "sha256": "2308948dceb0982b7118d59e370356c93bdcce85f93200d5bc9b13c56cda80c3"
+          },
+          {
+            "bytes": 1050,
+            "path": "expressions/exp_04.exp3.json",
+            "sha256": "52621dafb2adf742672b5af943cdf7158ac8d437ad4ef8d5a20692e5c60b466f"
+          },
+          {
+            "bytes": 1052,
+            "path": "expressions/exp_05.exp3.json",
+            "sha256": "d649edfab5944711a2a313345691eef0442a98713a5d2a767b321bc3ff54e6e5"
+          },
+          {
+            "bytes": 18202,
+            "path": "motions/mtn_01.motion3.json",
+            "sha256": "cd1f4a566b237adbd1bc138a31002150a0b7ef9efd9951a396250faee63893dc"
+          },
+          {
+            "bytes": 37525,
+            "path": "motions/mtn_02.motion3.json",
+            "sha256": "ceeb1ffdf9d9d50d3f3c9ae134d318bfd918fedf2e6f531128a92d0b6349ee69"
+          },
+          {
+            "bytes": 50727,
+            "path": "motions/mtn_03.motion3.json",
+            "sha256": "4004e17ea8f2945e5a17c6eb385569a5a44d36bdac211ccdb5cf0c2e6afc4ae0"
+          }
+        ],
+        "name": "Ren",
+        "url": "/.cache/model-compatibility/render/Ren/Ren.model3.json"
+      }
+    }
+  ],
+  "models": [
+    {
+      "name": "Haru",
+      "scene": "default",
+      "parameters": {},
+      "parts": {},
+      "samples": 3350,
+      "rawFalsePositive": 2,
+      "rawFalseNegative": 0,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 93.8,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 2,
+        "rawFalseNegative": 0
+      }
+    },
+    {
+      "name": "Mao",
+      "scene": "default",
+      "parameters": {},
+      "parts": {},
+      "samples": 3350,
+      "rawFalsePositive": 9,
+      "rawFalseNegative": 0,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 134,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 9,
+        "rawFalseNegative": 0
+      }
+    },
+    {
+      "name": "Ren",
+      "scene": "default",
+      "parameters": {},
+      "parts": {},
+      "samples": 3350,
+      "rawFalsePositive": 7,
+      "rawFalseNegative": 0,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 172.9,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 7,
+        "rawFalseNegative": 0
+      }
+    },
+    {
+      "name": "Ren",
+      "scene": "reload-default",
+      "parameters": {},
+      "parts": {},
+      "samples": 3350,
+      "rawFalsePositive": 7,
+      "rawFalseNegative": 0,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 166.6,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 7,
+        "rawFalseNegative": 0
+      }
+    },
+    {
+      "name": "Ren",
+      "scene": "display",
+      "parameters": {
+        "ParamDisplayWidth1": 1,
+        "ParamDisplayHeight1": 1,
+        "ParamDisplayWidth2": 1,
+        "ParamDisplayHeight2": 1,
+        "ParamDisplayAngle": 1
+      },
+      "parts": {},
+      "samples": 3350,
+      "rawFalsePositive": 6,
+      "rawFalseNegative": 0,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 199,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 6,
+        "rawFalseNegative": 0
+      }
+    },
+    {
+      "name": "Ren",
+      "scene": "hologram",
+      "parameters": {
+        "ParamHologram": 1,
+        "ParamTransparent": 1,
+        "ParamHologramPattern": 0.2
+      },
+      "parts": {},
+      "samples": 3350,
+      "rawFalsePositive": 3,
+      "rawFalseNegative": 6,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 140.8,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 2532,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 2591,
+        "rawFalseNegative": 0
+      }
+    },
+    {
+      "name": "Ren",
+      "scene": "noise-motion-tail",
+      "parameters": {
+        "ParamNoise": 1,
+        "ParamNoiseRotate": 0.012,
+        "ParamDisplayAngle": 0.017,
+        "ParamNight": 1,
+        "ParamLight": 0.186
+      },
+      "parts": {},
+      "samples": 3350,
+      "rawFalsePositive": 6,
+      "rawFalseNegative": 0,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 143.3,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 2445,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 2471,
+        "rawFalseNegative": 0
+      }
+    },
+    {
+      "name": "Ren",
+      "scene": "root-offscreen-zero",
+      "parameters": {},
+      "parts": {
+        "PartAll": 0
+      },
+      "samples": 3350,
+      "rawFalsePositive": 0,
+      "rawFalseNegative": 0,
+      "clearFalsePositive": 0,
+      "opaqueFalseNegative": 0,
+      "elapsedMs": 166.7,
+      "glError": 0,
+      "baseline": {
+        "clearFalsePositive": 636,
+        "opaqueFalseNegative": 0,
+        "rawFalsePositive": 636,
+        "rawFalseNegative": 0
+      }
+    }
+  ],
+  "errors": [],
+  "status": "measured",
+  "lifecycleRegression": {
+    "before": "Ren default -> reload-default produced INVALID_OPERATION 1282 at bindFramebuffer; default effects reproduced it.",
+    "after": "Per-context offscreen pool removed after model disposal; repeated Ren loads in these eight cases produced no GL errors."
+  },
+  "limitations": [
+    "Sparse samples of one dynamic frame per scene, not all pixels or all model states.",
+    "Texture downsampling, mask filtering, RGBA8 rounding, triangle overlap and MSAA can differ.",
+    "The baseline comparison is historical; the final diagnostic no longer imports the ignored baseline snapshot.",
+    "Browser verification does not establish native click-through, focus, DPI or whole-process resource performance."
+  ],
+  "finalDiagnostic": {
+    "sourceSha256": "03f23faa27a7cec50a6bc89aecd832406a104db5b1767b344894371d87d7dc89",
+    "baselineIncluded": false,
+    "models": [
+      {
+        "name": "Haru",
+        "scene": "default",
+        "parameters": {},
+        "parts": {},
+        "samples": 3350,
+        "rawFalsePositive": 2,
+        "rawFalseNegative": 0,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 53.2,
+        "glError": 0
+      },
+      {
+        "name": "Mao",
+        "scene": "default",
+        "parameters": {},
+        "parts": {},
+        "samples": 3350,
+        "rawFalsePositive": 9,
+        "rawFalseNegative": 0,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 75.2,
+        "glError": 0
+      },
+      {
+        "name": "Ren",
+        "scene": "default",
+        "parameters": {},
+        "parts": {},
+        "samples": 3350,
+        "rawFalsePositive": 7,
+        "rawFalseNegative": 0,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 108.7,
+        "glError": 0
+      },
+      {
+        "name": "Ren",
+        "scene": "reload-default",
+        "parameters": {},
+        "parts": {},
+        "samples": 3350,
+        "rawFalsePositive": 7,
+        "rawFalseNegative": 0,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 104.8,
+        "glError": 0
+      },
+      {
+        "name": "Ren",
+        "scene": "display",
+        "parameters": {
+          "ParamDisplayWidth1": 1,
+          "ParamDisplayHeight1": 1,
+          "ParamDisplayWidth2": 1,
+          "ParamDisplayHeight2": 1,
+          "ParamDisplayAngle": 1
+        },
+        "parts": {},
+        "samples": 3350,
+        "rawFalsePositive": 4,
+        "rawFalseNegative": 0,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 121.9,
+        "glError": 0
+      },
+      {
+        "name": "Ren",
+        "scene": "hologram",
+        "parameters": {
+          "ParamHologram": 1,
+          "ParamTransparent": 1,
+          "ParamHologramPattern": 0.2
+        },
+        "parts": {},
+        "samples": 3350,
+        "rawFalsePositive": 4,
+        "rawFalseNegative": 6,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 103.6,
+        "glError": 0
+      },
+      {
+        "name": "Ren",
+        "scene": "noise-motion-tail",
+        "parameters": {
+          "ParamNoise": 1,
+          "ParamNoiseRotate": 0.012,
+          "ParamDisplayAngle": 0.017,
+          "ParamNight": 1,
+          "ParamLight": 0.186
+        },
+        "parts": {},
+        "samples": 3350,
+        "rawFalsePositive": 3,
+        "rawFalseNegative": 0,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 103,
+        "glError": 0
+      },
+      {
+        "name": "Ren",
+        "scene": "root-offscreen-zero",
+        "parameters": {},
+        "parts": {
+          "PartAll": 0
+        },
+        "samples": 3350,
+        "rawFalsePositive": 0,
+        "rawFalseNegative": 0,
+        "clearFalsePositive": 0,
+        "opaqueFalseNegative": 0,
+        "elapsedMs": 102.5,
+        "glError": 0
+      }
+    ],
+    "resourcesAfterDispose": {
+      "Framebuffer": {
+        "created": 56,
+        "released": 56,
+        "peak": 9,
+        "active": 0
+      },
+      "Texture": {
+        "created": 65,
+        "released": 65,
+        "peak": 10,
+        "active": 0
+      }
+    },
+    "errors": [],
+    "status": "measured"
+  },
+  "validation": {
+    "javascriptTests": 49,
+    "controllerScenarios": 44,
+    "typeScript": "passed",
+    "prettier": "passed",
+    "sdkAssetIntegrityFiles": 242,
+    "macOSDebugBundle": "built",
+    "executableSha256": "33378f7b7a202295034fb093dd32ccac439c70ca4dd792e74a487448e9470b28"
+  }
+}

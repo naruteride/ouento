@@ -1,0 +1,102 @@
+name: Verify desktop
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 이 정의의 추가는 Windows 빌드 또는 양 OS 실기 검증의 통과를 뜻하지 않는다.
+# CI는 소스·Core·네이티브 링크를 검사한다. GUI/오디오/권한/혼합 배율은
+# docs/verification.md의 실기 절차로 따로 확인한다. 배포·서명·업로드는 수행하지 않는다.
+jobs:
+  desktop:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+      RUST_BACKTRACE: '1'
+      RUSTUP_TOOLCHAIN: '1.98.1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # 공식 v7.0.0 릴리스의 커밋을 2026-09-22에 확인해 고정했다.
+      # https://github.com/actions/checkout/releases/tag/v7.0.0
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # https://github.com/actions/setup-node/releases/tag/v7.0.0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # 두 공식 runner 이미지에 rustup과 각 OS의 네이티브 빌드 도구가 포함되어 있다.
+      # https://github.com/actions/runner-images
+      - name: Set up pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+
+      - name: Record build environment
+        run: |
+          node --version
+          npm --version
+          rustc --version --verbose
+          cargo --version
+          node -e "console.log({ platform: process.platform, arch: process.arch, os: require('node:os').release() })"
+
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+
+      # 공식 URL·SHA-256은 docs/sdk-lock.json에 고정되어 있다.
+      # 다운로드/무결성 실패는 건너뛰지 않는다. 자산을 공개 artifact로 올리지 않는다.
+      - name: Prepare SDK and sample assets
+        run: npm run assets:setup
+
+      - name: Verify prepared asset hashes
+        run: npm run assets:setup -- --verify
+
+      - name: Check TypeScript
+        run: npm run check
+
+      - name: Test JavaScript state boundaries
+        run: npm test
+
+      - name: Test companion events and model preview commit
+        run: npm run test:controllers
+
+      - name: Validate Mao, Haru, Kei with actual Cubism Core
+        run: node scripts/check-models.mjs
+
+      - name: Validate actual MotionSync processing and cancellation
+        run: node scripts/check-motion-sync.mjs
+
+      - name: Test Rust state and native asset boundaries
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Exercise official sample folder and ZIP imports
+        run: npm run test:compatibility
+
+      - name: Check Rust with Clippy
+        run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      # Tauri의 beforeBuildCommand가 프런트엔드를 빌드한다.
+      # https://v2.tauri.app/reference/cli/#build
+      - name: Build native debug executable without bundling
+        run: npm run tauri -- build --debug --no-bundle --ci

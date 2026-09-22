@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "allowImportingTsExtensions": true,
+    "useDefineForClassFields": false,
+    "baseUrl": ".",
+    "paths": {
+      "@framework/*": ["vendor/cubism-framework/src/*"],
+      "@motionsync/*": ["vendor/motionsync/src/*"]
+    }
+  },
+  "include": [
+    "src/character/**/*.ts",
+    "src/types/**/*.d.ts",
+    "vendor/cubism-core/*.d.ts",
+    "vendor/motionsync-core/CRI/*.d.ts"
+  ]
+}

@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>NSMicrophoneUsageDescription</key><string>말로 대화하기를 켜면 음성을 인식하기 위해 마이크를 사용합니다.</string><key>NSScreenCaptureUsageDescription</key><string>선택한 창을 함께 볼 때만 화면을 읽습니다.</string></dict></plist>

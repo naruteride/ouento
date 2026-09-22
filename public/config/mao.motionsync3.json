@@ -1,0 +1,274 @@
+{
+  "Version": 1,
+  "Meta": {
+    "SettingCount": 1,
+    "Dictionary": [
+      {
+        "Id": "OuentoMaoVowelsV1",
+        "Name": "Mao five-vowel mouth"
+      }
+    ]
+  },
+  "Settings": [
+    {
+      "Id": "OuentoMaoVowelsV1",
+      "AnalysisType": "CRI",
+      "UseCase": "Mouth",
+      "CubismParameters": [
+        {
+          "Name": "아 / A",
+          "Id": "ParamA",
+          "Min": 0,
+          "Max": 1,
+          "Damper": 0,
+          "Smooth": 20
+        },
+        {
+          "Name": "이 / I",
+          "Id": "ParamI",
+          "Min": 0,
+          "Max": 1,
+          "Damper": 0,
+          "Smooth": 20
+        },
+        {
+          "Name": "우 / U",
+          "Id": "ParamU",
+          "Min": 0,
+          "Max": 1,
+          "Damper": 0,
+          "Smooth": 20
+        },
+        {
+          "Name": "에 / E",
+          "Id": "ParamE",
+          "Min": 0,
+          "Max": 1,
+          "Damper": 0,
+          "Smooth": 20
+        },
+        {
+          "Name": "오 / O",
+          "Id": "ParamO",
+          "Min": 0,
+          "Max": 1,
+          "Damper": 0,
+          "Smooth": 20
+        }
+      ],
+      "AudioParameters": [
+        {
+          "Name": "Silence",
+          "Id": "Silence",
+          "Min": 0,
+          "Max": 1,
+          "Scale": 1,
+          "Enabled": true
+        },
+        {
+          "Name": "A",
+          "Id": "A",
+          "Min": 0,
+          "Max": 1,
+          "Scale": 1,
+          "Enabled": true
+        },
+        {
+          "Name": "I",
+          "Id": "I",
+          "Min": 0,
+          "Max": 1,
+          "Scale": 1,
+          "Enabled": true
+        },
+        {
+          "Name": "U",
+          "Id": "U",
+          "Min": 0,
+          "Max": 1,
+          "Scale": 1,
+          "Enabled": true
+        },
+        {
+          "Name": "E",
+          "Id": "E",
+          "Min": 0,
+          "Max": 1,
+          "Scale": 1,
+          "Enabled": true
+        },
+        {
+          "Name": "O",
+          "Id": "O",
+          "Min": 0,
+          "Max": 1,
+          "Scale": 1,
+          "Enabled": true
+        }
+      ],
+      "Mappings": [
+        {
+          "Type": "Shape",
+          "Id": "Silence",
+          "Targets": [
+            {
+              "Id": "ParamA",
+              "Value": 0
+            },
+            {
+              "Id": "ParamI",
+              "Value": 0
+            },
+            {
+              "Id": "ParamU",
+              "Value": 0
+            },
+            {
+              "Id": "ParamE",
+              "Value": 0
+            },
+            {
+              "Id": "ParamO",
+              "Value": 0
+            }
+          ]
+        },
+        {
+          "Type": "Shape",
+          "Id": "A",
+          "Targets": [
+            {
+              "Id": "ParamA",
+              "Value": 1
+            },
+            {
+              "Id": "ParamI",
+              "Value": 0
+            },
+            {
+              "Id": "ParamU",
+              "Value": 0
+            },
+            {
+              "Id": "ParamE",
+              "Value": 0
+            },
+            {
+              "Id": "ParamO",
+              "Value": 0
+            }
+          ]
+        },
+        {
+          "Type": "Shape",
+          "Id": "I",
+          "Targets": [
+            {
+              "Id": "ParamA",
+              "Value": 0
+            },
+            {
+              "Id": "ParamI",
+              "Value": 1
+            },
+            {
+              "Id": "ParamU",
+              "Value": 0
+            },
+            {
+              "Id": "ParamE",
+              "Value": 0
+            },
+            {
+              "Id": "ParamO",
+              "Value": 0
+            }
+          ]
+        },
+        {
+          "Type": "Shape",
+          "Id": "U",
+          "Targets": [
+            {
+              "Id": "ParamA",
+              "Value": 0
+            },
+            {
+              "Id": "ParamI",
+              "Value": 0
+            },
+            {
+              "Id": "ParamU",
+              "Value": 1
+            },
+            {
+              "Id": "ParamE",
+              "Value": 0
+            },
+            {
+              "Id": "ParamO",
+              "Value": 0
+            }
+          ]
+        },
+        {
+          "Type": "Shape",
+          "Id": "E",
+          "Targets": [
+            {
+              "Id": "ParamA",
+              "Value": 0
+            },
+            {
+              "Id": "ParamI",
+              "Value": 0
+            },
+            {
+              "Id": "ParamU",
+              "Value": 0
+            },
+            {
+              "Id": "ParamE",
+              "Value": 1
+            },
+            {
+              "Id": "ParamO",
+              "Value": 0
+            }
+          ]
+        },
+        {
+          "Type": "Shape",
+          "Id": "O",
+          "Targets": [
+            {
+              "Id": "ParamA",
+              "Value": 0
+            },
+            {
+              "Id": "ParamI",
+              "Value": 0
+            },
+            {
+              "Id": "ParamU",
+              "Value": 0
+            },
+            {
+              "Id": "ParamE",
+              "Value": 0
+            },
+            {
+              "Id": "ParamO",
+              "Value": 1
+            }
+          ]
+        }
+      ],
+      "PostProcessing": {
+        "BlendRatio": 0.35,
+        "Smoothing": 25,
+        "SampleRate": 60
+      }
+    }
+  ]
+}

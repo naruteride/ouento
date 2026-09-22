@@ -1,0 +1,68 @@
+{
+  "date": "2026-09-22",
+  "source": "tests/browser/model-soak.html의 최종 DOM 보고서 요약",
+  "host": "macOS 26.6.2 build 25G83 arm64",
+  "browser": "Codex In-app Browser, Chrome/152.0.0.0",
+  "canvasCss": [360, 500],
+  "devicePixelRatio": 2,
+  "sdk": "Web 5-r.5 / MotionSync 5-r.2, docs/sdk-lock.json의 수명 관리 패치 적용",
+  "conditions": "Mao/Haru/Kei 50회 교대, 한국어 공식 WAV 음소거 재생. 마지막 Haru에서 FPS별 2.2초 측정. 최종 측정 중 Tauri debug 빌드가 병행됨.",
+  "completedLoads": 50,
+  "status": "passed",
+  "durationMs": 26119,
+  "errors": [],
+  "frameMeasurements": [
+    {
+      "targetFps": 30,
+      "model": "Haru",
+      "frames": 67,
+      "observedFps": 30.02,
+      "intervalMedianMs": 33.3,
+      "intervalP95Ms": 50,
+      "browserRefreshFps": 60
+    },
+    {
+      "targetFps": 60,
+      "model": "Haru",
+      "frames": 122,
+      "observedFps": 55.42,
+      "intervalMedianMs": 16.7,
+      "intervalP95Ms": 32.5,
+      "browserRefreshFps": 60
+    }
+  ],
+  "paused": { "drawCalls": 0, "pendingAnimationFrames": 0 },
+  "interruptedLoad": {
+    "status": "passed",
+    "liveModelsWhileOldAssetPending": 1,
+    "liveMocsWhileOldAssetPending": 1,
+    "liveModelsAfterOldAssetResolved": 1,
+    "liveMocsAfterOldAssetResolved": 1
+  },
+  "contextRecovery": { "status": "passed", "gpuDrawCallsAfterRestore": 1239, "glError": 0 },
+  "resourceCalls": {
+    "Buffer": { "created": 153, "released": 153, "peakLive": 3 },
+    "Framebuffer": { "created": 52, "released": 52, "peakLive": 1 },
+    "Moc": { "created": 53, "released": 53, "peakLive": 1 },
+    "Model": { "created": 53, "released": 53, "peakLive": 1 },
+    "Program": { "created": 484, "released": 484, "peakLive": 242 },
+    "Shader": { "created": 968, "released": 968, "peakLive": 2 },
+    "Texture": { "created": 122, "released": 122, "peakLive": 3 }
+  },
+  "afterDispose": {
+    "audioContextState": "closed",
+    "jsHeapBytes": 106782911,
+    "live": {
+      "Buffer": 0,
+      "Framebuffer": 0,
+      "Moc": 0,
+      "Model": 0,
+      "Program": 0,
+      "Shader": 0,
+      "Texture": 0
+    },
+    "motionSyncProcessors": 0,
+    "pendingAnimationFrames": 0
+  },
+  "limitations": "실제 API를 감싼 생성/해제 핸들 계수다. GPU 바이트, 전체 프로세스 RAM, 네이티브 WebKit/WebView2, 장시간 누수 또는 안정된 60 FPS의 보장이 아니다. JS heap은 GC 전 단일 표본이며 메모리 누수 판정에 사용하지 않는다."
+}

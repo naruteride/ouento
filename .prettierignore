@@ -1,0 +1,9 @@
+node_modules
+vendor
+public/vendor
+public/models
+.cache
+dist
+src-tauri/target
+AGENTS.md
+virtual_companion_plan_2026-09-11(1).md
