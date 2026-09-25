@@ -345,7 +345,7 @@ pub fn capture_window(request: &CaptureRequest) -> Result<CapturedFrame, String>
         return Err("화면 잠금/보안 데스크톱 중에는 캡처하지 않습니다.".into());
     }
     if screen_permission() == "denied" {
-        return Err("화면 기록 권한이 없습니다. 함께 보기에서 권한을 허용해 주세요.".into());
+        return Err("현재 실행 중인 Ouento에 화면 접근 권한이 적용되지 않았습니다. 시스템 설정에서 Ouento의 화면 기록을 허용하고, 이미 허용했다면 앱을 완전히 종료한 뒤 다시 열어 주세요.".into());
     }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {

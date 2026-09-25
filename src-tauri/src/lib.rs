@@ -297,6 +297,12 @@ fn request_screen_permission() -> Result<bool, String> {
     platform::request_screen_permission()
 }
 #[tauri::command]
+fn get_platform_capabilities() -> platform::PlatformCapabilities {
+    // Refresh OS authorization after returning from System Settings without
+    // reloading persisted form values (or opening the credential store).
+    platform::capabilities()
+}
+#[tauri::command]
 fn stop_observation(app: tauri::AppHandle, state: State<AppState>) -> Result<Settings, String> {
     let settings = state.backend.stop_observation()?;
     *state
@@ -523,14 +529,17 @@ async fn validate_reply_native_async(
     .map_err(|_| "발화의 관찰 대상을 확인하지 못했습니다.".to_string())?
 }
 #[tauri::command]
-fn show_companion(app: tauri::AppHandle) -> Result<(), String> {
+fn show_companion(app: tauri::AppHandle, reset_position: Option<bool>) -> Result<(), String> {
     let w = app
         .get_webview_window("companion")
         .ok_or("캐릭터 창이 없습니다.")?;
     let state = app.state::<AppState>();
-    state
-        .desktop
-        .reconcile(&w, state.backend.settings()?.scale)?;
+    let scale = state.backend.settings()?.scale;
+    if reset_position.unwrap_or(false) {
+        state.desktop.reset_position(&w, scale)?;
+    } else {
+        state.desktop.reconcile(&w, scale)?;
+    }
     w.show().map_err(|e| e.to_string())?;
     app.emit("companion-visibility", json!({"visible":true}))
         .map_err(|e| e.to_string())
@@ -749,7 +758,7 @@ pub fn run() {
                     let _ = show_settings(app.clone());
                 }
                 "companion" => {
-                    let _ = show_companion(app.clone());
+                    let _ = show_companion(app.clone(), Some(true));
                 }
                 "stop-observation" => {
                     let _ = stop_observation(app.clone(), app.state::<AppState>());
@@ -812,6 +821,7 @@ pub fn run() {
             switch_model,
             list_windows,
             request_screen_permission,
+            get_platform_capabilities,
             stop_observation,
             analyze_window,
             show_companion,

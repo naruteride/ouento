@@ -60,6 +60,9 @@ extern "C" {
 }
 
 pub fn screen_permission() -> &'static str {
+    // This is the current process's effective access, not the switch displayed
+    // for a previous build in System Settings. A false result cannot distinguish
+    // first use, denial, or an authorization that requires relaunching this app.
     if unsafe { CGPreflightScreenCaptureAccess() } {
         "granted"
     } else {
@@ -67,7 +70,7 @@ pub fn screen_permission() -> &'static str {
     }
 }
 pub fn request_screen_permission() -> bool {
-    unsafe { CGRequestScreenCaptureAccess() }
+    unsafe { CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() }
 }
 pub fn primary_button_down() -> bool {
     unsafe { CGEventSourceButtonState(0, 0) }

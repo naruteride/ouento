@@ -1,4 +1,5 @@
 import { styles } from './styles.js';
+import { patchHTML, setText } from './dom.js';
 
 const icons = {
   flower:
@@ -285,6 +286,7 @@ export class OuentoApp extends HTMLElement {
     this._pageSnapshots = new Map();
     this._memorySaveSequence = 0;
     this._memorySaveRequest = null;
+    this._syncMappingFields = false;
   }
 
   connectedCallback() {
@@ -363,7 +365,15 @@ export class OuentoApp extends HTMLElement {
     this._pageSnapshots.set(this._page, this._snapshot());
     this._page = page;
     this.render(false);
-    this._restore(this._pageSnapshots.get(page));
+    const snapshot = this._pageSnapshots.get(page);
+    this._restore(snapshot);
+    // Navigation creates a new log. Restore reading position here only;
+    // periodic status updates must leave the existing scroll container alone.
+    if (page === 'chat') {
+      const chat = this.shadowRoot.querySelector('.chat-body');
+      chat.scrollTop =
+        snapshot && !snapshot.chatAtBottom ? (snapshot.chatScroll ?? 0) : chat.scrollHeight;
+    }
     this.shadowRoot.querySelector('.main').scrollTop = 0;
     if (page === 'observe') this._emit('observation-refresh');
   }
@@ -422,6 +432,7 @@ export class OuentoApp extends HTMLElement {
     for (const field of form.querySelectorAll('[data-dirty]')) delete field.dataset.dirty;
     if (this.shadowRoot.activeElement?.form === form) this.shadowRoot.activeElement.blur();
     this._pageSnapshots.delete('character');
+    this._syncMappingFields = true;
   }
 
   _mappingValues(form) {
@@ -507,9 +518,15 @@ export class OuentoApp extends HTMLElement {
   }
 
   render(preserveInputs = true) {
-    const snapshot = preserveInputs ? this._snapshot() : null;
     const state = this._data;
-    this.shadowRoot.getElementById('page-panel').dataset.characterId = state.character.id;
+    const panel = this.shadowRoot.getElementById('page-panel');
+    const modelChanged = panel.dataset.characterId !== state.character.id;
+    const chatBefore = panel.querySelector('.chat-body');
+    const messageCount = state.messages.length;
+    const newMessages = messageCount !== this._renderedMessageCount;
+    const followChat =
+      chatBefore && chatBefore.scrollHeight - chatBefore.scrollTop - chatBefore.clientHeight < 40;
+    panel.dataset.characterId = state.character.id;
     const page = pages[this._page];
     for (const nav of this.shadowRoot.querySelectorAll('.nav-link')) {
       nav.toggleAttribute('aria-current', nav.dataset.page === this._page);
@@ -535,39 +552,54 @@ export class OuentoApp extends HTMLElement {
         ? `${state.platform} · OUENTO ${state.version}`
         : 'OUENTO · YOUR DAILY COMPANION',
     }))
-      this.shadowRoot.getElementById(id).textContent = text;
+      setText(this.shadowRoot.getElementById(id), text);
     this.shadowRoot.getElementById('model-empty').hidden = state.character.loaded;
-    this.shadowRoot.getElementById('model-status').textContent =
-      state.character.status || 'Live2D 모델을 불러오면 이곳에서 만날 수 있어요.';
-    this.shadowRoot.getElementById('model-live').innerHTML =
-      `<span class="dot ${state.character.loaded ? 'active' : ''}"></span>${state.character.loaded ? 'LIVE' : '준비 중'}`;
-    this.shadowRoot.getElementById('observation-status').innerHTML =
-      `<span class="dot ${state.observation.mode !== 'off' ? 'active' : ''}"></span>${escape(state.observation.status || (state.observation.mode === 'off' ? '관찰하지 않음' : '선택한 화면 함께 보는 중'))}`;
+    setText(
+      this.shadowRoot.getElementById('model-status'),
+      state.character.status || 'Live2D 모델을 불러오면 이곳에서 만날 수 있어요.',
+    );
+    patchHTML(
+      this.shadowRoot.getElementById('model-live'),
+      `<span class="dot ${state.character.loaded ? 'active' : ''}"></span>${state.character.loaded ? 'LIVE' : '준비 중'}`,
+    );
+    patchHTML(
+      this.shadowRoot.getElementById('observation-status'),
+      `<span class="dot ${state.observation.mode !== 'off' ? 'active' : ''}"></span>${escape(state.observation.status || (state.observation.mode === 'off' ? '관찰하지 않음' : '선택한 화면 함께 보는 중'))}`,
+    );
     this.shadowRoot
       .querySelector('[data-do="quiet-toggle"]')
       .setAttribute('aria-pressed', String(state.observation.quiet));
     const error = this.shadowRoot.getElementById('global-error');
     error.hidden = !state.error;
-    error.innerHTML = state.error
-      ? `<div class="notice error global-error" role="alert">${icon('info')}<p>${escape(state.error)}</p></div>`
-      : '';
+    patchHTML(
+      error,
+      state.error
+        ? `<div class="notice error global-error" role="alert">${icon('info')}<p>${escape(state.error)}</p></div>`
+        : '',
+    );
     const showCompanion = ['chat', 'character', 'personality'].includes(this._page);
     this.shadowRoot.querySelector('.companion').hidden = !showCompanion;
     this.shadowRoot.querySelector('.workarea').classList.toggle('full', !showCompanion);
-    this.shadowRoot.getElementById('page-panel').innerHTML = this[`_${this._page}Page`]();
-    this.shadowRoot.getElementById('page-bottom').innerHTML =
+    patchHTML(panel, this[`_${this._page}Page`](), {
+      reset: !preserveInputs || (modelChanged && this._page === 'character'),
+      syncFields: this._syncMappingFields && this._page === 'character',
+    });
+    if (this._page === 'character') this._syncMappingFields = false;
+    for (const field of panel.querySelectorAll('input[type="range"][data-dirty]'))
+      this._updateRange(field);
+    this._updatePersonaQuote();
+    patchHTML(
+      this.shadowRoot.getElementById('page-bottom'),
       this._page === 'chat'
         ? `<div class="bottom-cards"><div class="mini-card"><span class="mini-card-icon">${icon('observe')}</span><div><h3>같이 보고 싶은 순간에</h3><p>선택한 화면만, 허락한 만큼 함께 봐요.</p></div><button class="text-button" data-page="observe" aria-label="함께 보기 설정">${icon('arrow')}</button></div><div class="mini-card"><span class="mini-card-icon">${icon('personality')}</span><div><h3>나와 잘 맞는 온도</h3><p>말투와 반응을 취향에 맞춰 보세요.</p></div><button class="text-button" data-page="personality" aria-label="성격 설정">${icon('arrow')}</button></div></div><div class="context-note">${icon('shield')}<span>${state.observation.mode === 'off' ? '지금은 화면을 보지 않아요. 이야기는 편하게 나눠요.' : '허용한 범위만 함께 봐요. 관찰은 언제든 멈출 수 있어요.'}</span></div>`
-        : '';
-    this._restore(snapshot);
+        : '',
+    );
     const chat = this.shadowRoot.querySelector('.chat-body');
-    if (chat)
-      chat.scrollTop =
-        this._data.messages.length === 0
-          ? 0
-          : !snapshot || snapshot.chatAtBottom
-            ? chat.scrollHeight
-            : snapshot.chatScroll;
+    // Only a new message may follow the conversation. Status ticks must never
+    // write scrollTop: doing so cancels WebKit's native rubber-band scrolling.
+    if (chat && messageCount && newMessages && (!chatBefore || followChat))
+      chat.scrollTop = chat.scrollHeight;
+    this._renderedMessageCount = messageCount;
     if (this.shadowRoot.getElementById('import-dialog').open) this._renderImport();
   }
 
@@ -654,7 +686,7 @@ export class OuentoApp extends HTMLElement {
           `<label class="mode-option"><input type="radio" name="mode" value="${id}" ${checked(o.mode === id)}><span><strong>${title}</strong><small>${text}</small></span></label>`,
       )
       .join('')}</div>
-      <div class="section-divider"></div><div class="form-grid"><label class="field"><span>함께 볼 창</span><select name="windowId"><option value="">창을 선택해 주세요</option>${o.windows.map((window) => `<option value="${escape(window.id)}" ${selected(window.id, o.windowId)}>${escape(window.appName || window.appId)} · ${escape(window.title)}</option>`).join('')}</select><button type="button" class="text-button" data-do="observation-refresh">${icon('refresh')}창 목록 새로고침</button><button type="button" class="text-button" data-do="observation-add-app">${icon('plus')}선택한 창의 앱을 허용 목록에 추가</button></label><div class="field"><span>화면 접근 권한</span><p class="muted">${o.permission === 'granted' ? '화면 접근이 허용되어 있어요.' : o.permission === 'denied' ? '화면 접근이 거부되었어요. 시스템 설정에서 허용할 수 있어요.' : '함께 보기를 켤 때 접근 권한을 확인해요.'}</p><button class="button" type="button" data-do="permission-request">${icon('shield')}화면 권한 확인</button></div><label class="field"><span>먼저 반응해도 되는 앱</span><textarea class="field-input" name="allowedApps" rows="3" placeholder="앱 식별자를 한 줄에 하나씩 입력하세요.">${escape(listText(o.allowedApps))}</textarea><small class="field-help">창 선택 목록의 앱 식별자를 사용해요.</small></label><label class="field"><span>언제나 제외할 민감 앱</span><textarea class="field-input" name="sensitiveApps" rows="3" placeholder="비밀번호·금융 등 민감한 앱 식별자">${escape(listText(o.sensitiveApps))}</textarea><small class="field-help">허용 목록에 있어도 제외해요.</small></label></div>
+      <div class="section-divider"></div><div class="form-grid"><label class="field"><span>함께 볼 창</span><select name="windowId"><option value="">창을 선택해 주세요</option>${o.windows.map((window) => `<option value="${escape(window.id)}" ${selected(window.id, o.windowId)}>${escape(window.appName || window.appId)} · ${escape(window.title)}</option>`).join('')}</select><button type="button" class="text-button" data-do="observation-refresh">${icon('refresh')}창 목록 새로고침</button><button type="button" class="text-button" data-do="observation-add-app">${icon('plus')}선택한 창의 앱을 허용 목록에 추가</button></label><div class="field"><span>화면 접근 권한</span><p class="muted">${o.permission === 'granted' ? '화면 접근이 허용되어 있어요.' : o.permission === 'denied' ? '현재 실행 중인 Ouento에는 화면 접근이 적용되지 않았어요. 시스템 설정에서 Ouento의 화면 기록을 허용했다면 앱을 완전히 종료한 뒤 다시 열어 주세요.' : '함께 보기를 켤 때 접근 권한을 확인해요.'}</p><button class="button" type="button" data-do="permission-request">${icon('shield')}화면 권한 확인</button></div><label class="field"><span>먼저 반응해도 되는 앱</span><textarea class="field-input" name="allowedApps" rows="3" placeholder="앱 식별자를 한 줄에 하나씩 입력하세요.">${escape(listText(o.allowedApps))}</textarea><small class="field-help">창 선택 목록의 앱 식별자를 사용해요.</small></label><label class="field"><span>언제나 제외할 민감 앱</span><textarea class="field-input" name="sensitiveApps" rows="3" placeholder="비밀번호·금융 등 민감한 앱 식별자">${escape(listText(o.sensitiveApps))}</textarea><small class="field-help">허용 목록에 있어도 제외해요.</small></label></div>
       <div class="notice">${icon('shield')}<p>함께 볼 때는 선택한 창의 화면과 앱·창 이름을 설정한 AI 제공자에게 보낼 수 있어요. 원본 화면은 기본 저장하지 않아요. 다른 창이나 화면에 가려진 민감한 내용을 먼저 확인해 주세요.</p></div><label class="check-row"><input type="checkbox" name="cloudConsent" ${checked(o.cloudConsent)}>선택한 화면과 앱·창 정보를 AI 제공자에게 전달하는 데 동의해요.</label><div class="form-footer"><button class="button" type="button" data-do="observation-analyze" ${disabled(o.mode === 'off' || !o.manualAvailable || o.manualAnalyzing)}>${o.manualAnalyzing ? '요청한 화면 분석 중…' : '지금 화면 한 번 보기'}</button><button class="button primary" type="submit">선택한 범위 적용</button></div></div>
       <div class="card"><h2>방해하지 않는 순간</h2>${toggle('focus', '집중하고 있어요', '집중 모드에서는 먼저 말하지 않아요.', o.focus)}${toggle('meeting', '회의 중이에요', '회의가 끝날 때까지 선제 발화를 멈춰요.', o.meeting)}<p class="field-help" style="margin-top:11px">위 옵션도 ‘선택한 범위 적용’으로 저장해요. 조용히 있기는 발화만 멈추고, 관찰 중지는 수집과 전송도 멈춰요.</p>${o.capabilities.length ? `<div class="capability-list">${o.capabilities.map((cap) => `<div class="capability"><div><span class="capability-label">${escape(cap.name)}</span><p class="capability-detail">${escape(cap.detail)}</p></div><span class="capability-badge ${cap.supported ? '' : 'unsupported'}">${cap.supported ? '사용 가능' : '미지원'}</span></div>`).join('')}</div>` : ''}</div></form>`;
   }
@@ -690,8 +722,10 @@ export class OuentoApp extends HTMLElement {
     const chosenEntry =
       d.entries.find((entry) => entry.path === previousEntry && entry.valid !== false)?.path ??
       d.entries.find((entry) => entry.valid !== false)?.path;
-    this.shadowRoot.getElementById('import-body').innerHTML =
-      `<div class="import-options"><button class="import-option" data-do="model-import" data-kind="folder" ${disabled(d.busy)}>${icon('folder')}모델 폴더 선택<small>.model3.json이 있는 폴더</small></button><button class="import-option" data-do="model-import" data-kind="zip" ${disabled(d.busy)}>${icon('archive')}ZIP 파일 선택<small>실행용 모델 묶음</small></button></div><p class="field-help" style="text-align:center;margin-top:12px">데스크톱 앱에서는 폴더나 ZIP을 창으로 끌어와도 돼요.</p><label class="check-row"><input type="checkbox" name="preserveIdentity" ${checked(preserveIdentity)}>지금의 성격과 기억을 새 모습에서도 유지해요.</label><p class="field-help" style="margin:5px 0 0 23px">해제하면 새 인격으로 시작하며 기존 기억이 삭제돼요.</p>${d.busy ? '<div class="notice">모델 파일과 참조 경로를 확인하고 있어요.</div>' : ''}${d.error ? `<div class="notice error" role="alert">${icon('info')}<p>${escape(d.error)}</p></div>` : ''}${d.entries.length ? `<form id="import-entry-form"><div class="section-divider"></div><h3>불러올 모델을 선택해 주세요.</h3>${d.entries.map((entry, index) => `<label class="import-entry"><input type="radio" name="entry" value="${escape(entry.path)}" ${checked(chosenEntry === entry.path)} ${disabled(entry.valid === false)}><span>${escape(entry.name)}<code>${escape(entry.path)}</code></span></label>`).join('')}<div class="form-footer"><button class="button primary" type="submit" ${disabled(d.busy)}>이 모델 불러오기</button></div></form>` : ''}<div class="notice warning">${icon('info')}<p>.moc3와 텍스처가 포함된 실행용 모델이 필요해요. 편집 원본(.cmo3), PSD, 이미지 파일만으로는 실행할 수 없어요.</p></div>`;
+    patchHTML(
+      this.shadowRoot.getElementById('import-body'),
+      `<div class="import-options"><button class="import-option" data-do="model-import" data-kind="folder" ${disabled(d.busy)}>${icon('folder')}모델 폴더 선택<small>.model3.json이 있는 폴더</small></button><button class="import-option" data-do="model-import" data-kind="zip" ${disabled(d.busy)}>${icon('archive')}ZIP 파일 선택<small>실행용 모델 묶음</small></button></div><p class="field-help" style="text-align:center;margin-top:12px">데스크톱 앱에서는 폴더나 ZIP을 창으로 끌어와도 돼요.</p><label class="check-row"><input type="checkbox" name="preserveIdentity" ${checked(preserveIdentity)}>지금의 성격과 기억을 새 모습에서도 유지해요.</label><p class="field-help" style="margin:5px 0 0 23px">해제하면 새 인격으로 시작하며 기존 기억이 삭제돼요.</p>${d.busy ? '<div class="notice">모델 파일과 참조 경로를 확인하고 있어요.</div>' : ''}${d.error ? `<div class="notice error" role="alert">${icon('info')}<p>${escape(d.error)}</p></div>` : ''}${d.entries.length ? `<form id="import-entry-form"><div class="section-divider"></div><h3>불러올 모델을 선택해 주세요.</h3>${d.entries.map((entry, index) => `<label class="import-entry"><input type="radio" name="entry" value="${escape(entry.path)}" ${checked(chosenEntry === entry.path)} ${disabled(entry.valid === false)}><span>${escape(entry.name)}<code>${escape(entry.path)}</code></span></label>`).join('')}<div class="form-footer"><button class="button primary" type="submit" ${disabled(d.busy)}>이 모델 불러오기</button></div></form>` : ''}<div class="notice warning">${icon('info')}<p>.moc3와 텍스처가 포함된 실행용 모델이 필요해요. 편집 원본(.cmo3), PSD, 이미지 파일만으로는 실행할 수 없어요.</p></div>`,
+    );
   }
 
   _openMemory(id) {
@@ -837,14 +871,14 @@ export class OuentoApp extends HTMLElement {
 
   _updateRange(field) {
     const output = field.parentElement.querySelector('output');
-    if (output) output.textContent = `${Math.round(Number(field.value) * 100)}%`;
+    if (output) setText(output, `${Math.round(Number(field.value) * 100)}%`);
   }
 
   _updatePersonaQuote() {
     const quote = this.shadowRoot.getElementById('persona-quote');
     const choice = this.shadowRoot.querySelector('[name="preset"]:checked')?.value;
     if (quote && choice)
-      quote.textContent = `“${personas.find((persona) => persona.id === choice)?.quote || ''}”`;
+      setText(quote, `“${personas.find((persona) => persona.id === choice)?.quote || ''}”`);
   }
 
   _onSubmit(event) {

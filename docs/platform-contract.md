@@ -7,6 +7,7 @@
 - 공통: `serde`, `serde_json`, `uuid` (`v4`), `base64` 0.22, `image` 0.25 (`png`, `jpeg`), `zip` 2.4 (`deflate`).
 - macOS/Windows: `xcap = "=0.9.8"`. 네이티브 커서·권한·입력 상태는 OS FFI. Node/Python 프로세스를 실행하지 않는다.
 - `platform::capabilities() -> PlatformCapabilities`
+- Tauri `get_platform_capabilities()`는 현재 권한과 지원 상태만 다시 읽는다. 앱 포커스 복귀·표시 복귀·창 목록 새로고침에 호출하며 설정과 작성 중인 초안은 다시 읽지 않는다. 권한 요청이 끝나면 이전 조회보다 새로운 결과를 받아 표시한다.
 - `platform::request_screen_permission() -> Result<bool, String>`: 사용자가 관찰을 켰을 때만 호출한다.
 - `platform::list_windows() -> Result<Vec<WindowInfo>, String>`: 자기 프로세스와 제목 없는 창을 제외한다.
 - `platform::capture_window(&CaptureRequest) -> Result<CapturedFrame, String>`: 캡처 직전/후 창 ID·PID·앱 이름을 재검사한다. 요청의 `consented`가 false이면 수집하지 않는다. root의 관찰 세대/허용 범위 검사는 별도로 전송 직전에 다시 필요하다.
@@ -22,6 +23,8 @@
 - `save_mapping(id, serde_json::Value)`, `load_mapping(id)`: 모델별 JSON 매핑. UI에서 Core가 반환한 파라미터와 대조하며 저장소도 크기·숫자·객체 형식을 제한한다.
 
 구조체 JSON 필드는 `camelCase`다. 오류는 사용자에게 표시 가능한 한국어 메시지다.
+
+macOS 화면 기록 권한은 현재 프로세스의 `CGPreflightScreenCaptureAccess` 결과를 사용한다. false는 첫 요청 전·거부·재시작 필요·기존 개발 빌드의 허용 항목과 불일치를 구분하지 못하므로 사용자가 거부했다고 단정하지 않는다. 이미 허용된 프로세스에는 다시 요청하지 않는다. 시스템 설정의 스위치나 다른 창 제목이 보인다는 이유로 캡처 권한을 우회하지 않는다. 개발 빌드의 ad-hoc 서명은 재빌드마다 바뀔 수 있으며, 빌드 간 권한 유지에는 동일한 개발 서명 인증서가 필요하다. [Apple DTS 설명](https://developer.apple.com/forums/thread/819406).
 
 Windows의 `GetAsyncKeyState`는 논리 기본 버튼이 아니라 물리 버튼을 읽는다. `GetSystemMetrics(SM_SWAPBUTTON)`에 따라 왼쪽/오른쪽을 선택해 기본 버튼을 교환한 사용자도 드래그 유지 상태를 올바르게 읽는다. [Microsoft API 계약](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate). 호스트에서 타입 검사는 했지만 Windows 링크·실기 검증은 별도다.
 
@@ -67,4 +70,6 @@ macOS의 CGEvent 전역 커서는 주 디스플레이 왼쪽 위 기준 **deskto
 
 `desktop.rs`는 Tauri가 반환하는 물리 좌표와 모니터 작업 영역을 사용한다. 기본 창은 420×580 논리 픽셀이며 표시 크기 0.5~1.5에 따라 캐릭터 영역과 창을 함께 늘린다. 고정 UI 여백은 113 논리 픽셀, 최소 너비는 320으로 두고 작은 작업 영역에서는 전체 창을 맞춘다. companion 렌더러에는 전역 확대를 다시 적용하지 않는다.
 
-마지막 모니터 이름·원점과 이동 가능한 영역 내 상대 위치를 `companion-window.json`에 저장한다. 첫 실행은 기본 모니터 작업 영역 우측 하단이다. 드래그 종료, 표시 크기 변경, 다시 표시할 때와 표시 중 2초 간격으로 위치를 검사한다. 모니터 제거·배율 변경 시 유효한 작업 영역으로 복원한다. 숨김/잠금 동안 30 Hz 커서 IPC를 중단한다. 좌표 계산 단위 테스트와 두 OS의 실제 혼합 배율 시험은 구분한다.
+마지막 모니터 이름·원점과 창의 우측 하단 기준 상대 위치를 `companion-window.json` 버전 2로 저장한다. 화면 밖 위치도 저장하며 0~1 범위로 제한하지 않는다. 기존 버전 1 위치는 읽은 뒤 새 형식으로 저장한다. 첫 실행은 기본 모니터 작업 영역 우측 하단이다. 드래그 종료, 표시 크기 변경, 다시 표시할 때와 표시 중 2초 간격으로 검사하되 사용자가 화면 밖에 놓은 창을 안으로 밀어 넣지 않는다. 배율 변경은 상대 위치를 유지하고, 저장된 모니터가 제거되면 사용 가능한 모니터 우측 하단으로 복원한다. 숨김/잠금 동안 30 Hz 커서 IPC를 중단한다. 좌표 계산 단위 테스트와 두 OS의 실제 혼합 배율 시험은 구분한다.
+
+사용자가 명시적으로 ‘캐릭터 표시’를 누른 경우에는 우측 하단으로 복구한다. 앱 시작 시 자동 표시는 위치를 복구하지 않는다. 창 크기는 논리 픽셀과 물리 픽셀을 함께 맞춰 Retina에서 크기 반올림 때문에 주기 검사마다 위치가 밀리지 않게 한다.

@@ -48,12 +48,12 @@ struct Placement {
 }
 impl Placement {
     fn valid(&self) -> bool {
-        self.version == 1
+        matches!(self.version, 1 | 2)
             && self.monitor.len() <= 1024
             && self.horizontal.is_finite()
-            && (0.0..=1.0).contains(&self.horizontal)
             && self.vertical.is_finite()
-            && (0.0..=1.0).contains(&self.vertical)
+            && (self.version == 2
+                || ((0.0..=1.0).contains(&self.horizontal) && (0.0..=1.0).contains(&self.vertical)))
     }
 }
 
@@ -82,60 +82,59 @@ fn dimensions(screen: &Screen, scale: f32) -> (f64, f64) {
     let height = (STAGE_HEIGHT * scale + CHROME_HEIGHT) * screen.scale;
     let area = usable(screen);
     let fit = (area.width / width).min(area.height / height).min(1.0);
-    (
-        (width * fit).round().max(1.0),
-        (height * fit).round().max(1.0),
-    )
-}
-
-fn constrained(mut rect: Rect, screen: &Screen) -> Rect {
-    let area = usable(screen);
-    rect.width = rect.width.min(area.width).floor().max(1.0);
-    rect.height = rect.height.min(area.height).floor().max(1.0);
-    rect.x = rect
-        .x
-        .clamp(area.x, (area.right() - rect.width).max(area.x))
-        .round();
-    rect.y = rect
-        .y
-        .clamp(area.y, (area.bottom() - rect.height).max(area.y))
-        .round();
-    rect
+    // AppKit rounds content sizes to whole logical points. Requesting an odd
+    // physical height at 2x otherwise causes a resize and downward drift every
+    // reconciliation tick when preserving the bottom edge.
+    let pixels = |value: f64, limit: f64| {
+        ((value * fit / screen.scale).round() * screen.scale)
+            .round()
+            .min(limit.floor())
+            .max(1.0)
+    };
+    (pixels(width, area.width), pixels(height, area.height))
 }
 
 fn restore(screen: &Screen, scale: f32, placement: Option<&Placement>) -> Rect {
     let (width, height) = dimensions(screen, scale);
     let area = usable(screen);
-    let (x, y) = placement
-        .map(|p| (p.horizontal, p.vertical))
-        .unwrap_or((1.0, 1.0));
-    constrained(
-        Rect {
-            x: area.x + (area.width - width).max(0.0) * x,
-            y: area.y + (area.height - height).max(0.0) * y,
-            width,
-            height,
-        },
-        screen,
-    )
+    // A removed monitor resets to the available monitor. An intentional
+    // offscreen position on a monitor that still exists is preserved.
+    let placement = placement.filter(|p| p.monitor == screen.name);
+    let (x, y) = match placement {
+        Some(p) if p.version == 2 => (
+            area.x + area.width * p.horizontal - width,
+            area.y + area.height * p.vertical - height,
+        ),
+        legacy => {
+            let (x, y) = legacy
+                .map(|p| (p.horizontal, p.vertical))
+                .unwrap_or((1.0, 1.0));
+            (
+                area.x + (area.width - width).max(0.0) * x,
+                area.y + (area.height - height).max(0.0) * y,
+            )
+        }
+    };
+    Rect {
+        x: x.round(),
+        y: y.round(),
+        width,
+        height,
+    }
 }
 
 fn capture(screen: &Screen, rect: Rect) -> Placement {
     let area = usable(screen);
-    let fraction = |offset: f64, travel: f64| {
-        if travel < 1.0 {
-            1.0
-        } else {
-            ((offset / travel).clamp(0.0, 1.0) * 10000.0).round() / 10000.0
-        }
-    };
+    // Normalize the bottom/right anchor by screen size, not available travel:
+    // travel can be zero on a small display, and positions may be outside 0..1.
+    let fraction = |offset: f64, extent: f64| (offset / extent * 1e8).round() / 1e8;
     Placement {
-        version: 1,
+        version: 2,
         monitor: screen.name.clone(),
         origin_x: screen.bounds.x as i32,
         origin_y: screen.bounds.y as i32,
-        horizontal: fraction(rect.x - area.x, area.width - rect.width),
-        vertical: fraction(rect.y - area.y, area.height - rect.height),
+        horizontal: fraction(rect.right() - area.x, area.width),
+        vertical: fraction(rect.bottom() - area.y, area.height),
     }
 }
 
@@ -167,6 +166,47 @@ struct LayoutState {
     screens: Vec<Screen>,
     initialized: bool,
 }
+impl LayoutState {
+    fn geometry(&self, screens: &[Screen], current: Rect, scale: f32) -> (usize, Rect) {
+        let visible = visible_screen(screens, current);
+        let index = match (self.initialized, visible) {
+            (true, Some(index)) => index,
+            _ => saved_screen(screens, self.saved.as_ref()),
+        };
+        let screen = &screens[index];
+        let desired = if !self.initialized
+            || (screens != self.screens
+                && (visible.is_none()
+                    || self
+                        .saved
+                        .as_ref()
+                        .is_some_and(|p| p.monitor == screen.name)))
+        {
+            let saved = self.saved.as_ref().filter(|p| {
+                // With identical monitor names, a removed display must not be
+                // mistaken for the remaining display solely by its name.
+                screens.len() >= self.screens.len()
+                    || screens.iter().any(|s| {
+                        s.name == p.monitor
+                            && s.bounds.x as i32 == p.origin_x
+                            && s.bounds.y as i32 == p.origin_y
+                    })
+            });
+            restore(screen, scale, saved)
+        } else {
+            let (width, height) = dimensions(screen, scale);
+            // Preserve user placement even when the whole window is offscreen.
+            // Resizing keeps the feet/right edge in place.
+            Rect {
+                x: (current.right() - width).round(),
+                y: (current.bottom() - height).round(),
+                width,
+                height,
+            }
+        };
+        (index, desired)
+    }
+}
 
 pub struct DesktopLayout {
     path: PathBuf,
@@ -193,6 +233,20 @@ impl DesktopLayout {
     /// Called after a drag, settings change and periodically for display removal
     /// or DPI changes. Never call while a native drag is active.
     pub fn reconcile(&self, window: &tauri::WebviewWindow, scale: f32) -> Result<(), String> {
+        self.reconcile_window(window, scale, false)
+    }
+
+    /// Explicit recovery only; routine checks and startup preserve placement.
+    pub fn reset_position(&self, window: &tauri::WebviewWindow, scale: f32) -> Result<(), String> {
+        self.reconcile_window(window, scale, true)
+    }
+
+    fn reconcile_window(
+        &self,
+        window: &tauri::WebviewWindow,
+        scale: f32,
+        reset_position: bool,
+    ) -> Result<(), String> {
         let mut state = self
             .state
             .lock()
@@ -241,35 +295,11 @@ impl DesktopLayout {
             width: size.width as f64,
             height: size.height as f64,
         };
-        let visible = visible_screen(&screens, current);
-        let index = match (state.initialized, visible) {
-            (true, Some(index)) => index,
-            _ => saved_screen(&screens, state.saved.as_ref()),
-        };
+        let (index, mut desired) = state.geometry(&screens, current, scale);
         let screen = &screens[index];
-        let desired = if !state.initialized
-            || visible.is_none()
-            || (screens != state.screens
-                && state
-                    .saved
-                    .as_ref()
-                    .is_some_and(|p| p.monitor == screen.name))
-        {
-            restore(screen, scale, state.saved.as_ref())
-        } else {
-            let (width, height) = dimensions(screen, scale);
-            // Resizing keeps the feet/right edge in place instead of cropping a
-            // larger character into the previous canvas.
-            constrained(
-                Rect {
-                    x: current.right() - width,
-                    y: current.bottom() - height,
-                    width,
-                    height,
-                },
-                screen,
-            )
-        };
+        if reset_position {
+            desired = restore(screen, scale, None);
+        }
         if current.width != desired.width || current.height != desired.height {
             window
                 .set_size(tauri::PhysicalSize::new(
@@ -393,8 +423,89 @@ mod tests {
         p.horizontal = f64::NAN;
         assert!(!p.valid());
         p.horizontal = 0.5;
-        p.vertical = -0.01;
+        p.vertical = f64::INFINITY;
         assert!(!p.valid());
+    }
+    #[test]
+    fn offscreen_drag_survives_periodic_checks_and_restart() {
+        let s = screen(0.0, 0.0, 1920.0, 1080.0, 1.0);
+        let screens = vec![s.clone()];
+        let initial = restore(&s, 1.0, None);
+        let mut state = LayoutState {
+            saved: Some(capture(&s, initial)),
+            screens: screens.clone(),
+            initialized: true,
+        };
+        // All corners, plus a completely offscreen window (no overlap).
+        for (x, y) in [
+            (-200.0, -200.0),
+            (1800.0, -200.0),
+            (-200.0, 950.0),
+            (1800.0, 950.0),
+            (2100.0, 1200.0),
+        ] {
+            let dragged = Rect { x, y, ..initial };
+            let (_, after_release) = state.geometry(&screens, dragged, 1.0);
+            assert_eq!(after_release, dragged);
+            let saved = capture(&s, after_release);
+            assert!(saved.valid());
+            let json = serde_json::to_vec(&saved).unwrap();
+            state.saved = Some(serde_json::from_slice(&json).unwrap());
+            assert_eq!(state.geometry(&screens, after_release, 1.0).1, dragged);
+            state.initialized = false;
+            assert_eq!(state.geometry(&screens, initial, 1.0).1, dragged);
+            state.initialized = true;
+        }
+    }
+    #[test]
+    fn offscreen_position_survives_zero_travel_and_resizing() {
+        let s = screen(0.0, 0.0, 800.0, 600.0, 1.0);
+        let initial = restore(&s, 1.5, None);
+        let dragged = Rect {
+            x: -150.0,
+            y: 450.0,
+            ..initial
+        };
+        let saved = capture(&s, dragged);
+        assert_eq!(restore(&s, 1.5, Some(&saved)), dragged);
+        let resized = restore(&s, 0.5, Some(&saved));
+        assert_eq!(resized.right(), dragged.right());
+        assert_eq!(resized.bottom(), dragged.bottom());
+    }
+    #[test]
+    fn legacy_positions_migrate_and_removed_monitors_reset() {
+        let s = screen(-1920.0, 0.0, 1920.0, 1080.0, 1.0);
+        let legacy = Placement {
+            version: 1,
+            monitor: s.name.clone(),
+            origin_x: -1920,
+            origin_y: 0,
+            horizontal: 0.25,
+            vertical: 0.6,
+        };
+        assert!(legacy.valid());
+        let original = restore(&s, 1.0, Some(&legacy));
+        let migrated = capture(&s, original);
+        assert_eq!(migrated.version, 2);
+        assert_eq!(restore(&s, 1.0, Some(&migrated)), original);
+        let saved = capture(
+            &s,
+            Rect {
+                x: -3000.0,
+                y: 1200.0,
+                ..original
+            },
+        );
+        let state = LayoutState {
+            saved: Some(saved),
+            screens: vec![s],
+            initialized: true,
+        };
+        let primary = screen(0.0, 0.0, 1920.0, 1080.0, 1.0);
+        let recovered = state
+            .geometry(std::slice::from_ref(&primary), original, 1.0)
+            .1;
+        assert_eq!(recovered, restore(&primary, 1.0, None));
     }
     #[test]
     fn fractional_dpi_produces_stable_integer_geometry() {
@@ -406,5 +517,42 @@ mod tests {
         assert_eq!(r.height.fract(), 0.0);
         assert_eq!(r.x.fract(), 0.0);
         assert_eq!(r.y.fract(), 0.0);
+    }
+    #[test]
+    fn retina_sizes_do_not_cause_rounding_drift() {
+        let s = screen(0.0, 0.0, 3024.0, 1964.0, 2.0);
+        for scale in [0.5, 0.8, 1.0, 1.1, 1.5] {
+            let r = restore(&s, scale, None);
+            assert_eq!((r.width / s.scale).fract(), 0.0);
+            assert_eq!((r.height / s.scale).fract(), 0.0);
+            let state = LayoutState {
+                saved: Some(capture(&s, r)),
+                screens: vec![s.clone()],
+                initialized: true,
+            };
+            assert_eq!(state.geometry(std::slice::from_ref(&s), r, scale).1, r);
+        }
+    }
+    #[test]
+    fn removing_a_same_named_monitor_recovers_offscreen_position() {
+        let primary = screen(0.0, 0.0, 1920.0, 1080.0, 1.0);
+        let mut left = screen(-1920.0, 0.0, 1920.0, 1080.0, 1.0);
+        left.name.clone_from(&primary.name);
+        let offscreen = Rect {
+            x: -2200.0,
+            y: 1300.0,
+            ..restore(&left, 1.0, None)
+        };
+        let state = LayoutState {
+            saved: Some(capture(&left, offscreen)),
+            screens: vec![primary.clone(), left],
+            initialized: true,
+        };
+        assert_eq!(
+            state
+                .geometry(std::slice::from_ref(&primary), offscreen, 1.0)
+                .1,
+            restore(&primary, 1.0, None)
+        );
     }
 }

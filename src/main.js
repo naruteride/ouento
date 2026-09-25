@@ -44,6 +44,7 @@ let typingState = null;
 let observationError = '';
 let analysisRun = null;
 let currentPresentation = null;
+let platformRefresh = null;
 const unlisteners = [];
 const error = (err) => app.notify(String(err), 'error');
 const update = (patch) => app.update(patch);
@@ -60,6 +61,33 @@ async function refresh() {
   renderer?.setOptions({ ...snapshot.settings, scale: 1 });
   player?.setMuted(snapshot.settings.muted);
   return snapshot;
+}
+// Returning from macOS settings must update permission status without loading
+// saved settings over a form that the user is still editing.
+async function refreshPlatform(fresh = false) {
+  // A completed permission prompt requires a newer read than any focus event
+  // that started before the prompt was answered.
+  if (fresh && platformRefresh) await platformRefresh.catch(() => {});
+  if (!native || closed || !snapshot) return;
+  if (platformRefresh) return platformRefresh;
+  platformRefresh = (async () => {
+    const platform = await call('get_platform_capabilities');
+    if (closed) return;
+    snapshot = { ...snapshot, platform };
+    update({
+      observation: {
+        permission: platform.screenPermission,
+        capabilities: platform.capabilities,
+      },
+    });
+    showObservationState();
+    return platform;
+  })();
+  try {
+    return await platformRefresh;
+  } finally {
+    platformRefresh = null;
+  }
 }
 function showSnapshot() {
   const state = uiSnapshot(snapshot);
@@ -730,7 +758,7 @@ app.addEventListener('action', async (event) => {
         await refresh();
         break;
       case 'desktop-show':
-        await call('show_companion');
+        await call('show_companion', { resetPosition: true });
         desktopShown = true;
         app.notify('화면 오른쪽 아래에서 만나요.');
         break;
@@ -835,16 +863,24 @@ app.addEventListener('action', async (event) => {
         break;
       }
       case 'observation-refresh':
+        await refreshPlatform();
         update({
           observation: {
             windows: (await call('list_windows')).map((w) => ({ ...w, id: String(w.id) })),
           },
         });
         break;
-      case 'permission-request':
-        await call('request_screen_permission');
-        await refresh();
+      case 'permission-request': {
+        const granted = await call('request_screen_permission');
+        const platform = await refreshPlatform(true);
+        app.notify(
+          granted && platform?.screenPermission === 'granted'
+            ? 'Ouento의 화면 접근이 허용되어 있어요.'
+            : '시스템 설정에서 Ouento의 화면 기록을 허용해 주세요. 이미 허용했다면 Ouento를 완전히 종료한 뒤 다시 열어 주세요.',
+          granted && platform?.screenPermission === 'granted' ? 'success' : 'info',
+        );
         break;
+      }
       case 'observation-save': {
         const o = a.observation;
         await save({
@@ -1019,7 +1055,9 @@ const observationTimer = setInterval(() => analyze(), 5000);
 document.addEventListener('visibilitychange', () => {
   renderer?.setPaused(locked || document.hidden);
   if (!desktopShown && document.hidden) stopObservationPlayback();
+  if (!document.hidden) refreshPlatform().catch(error);
 });
+window.addEventListener('focus', () => refreshPlatform().catch(error));
 window.addEventListener('beforeunload', () => {
   closed = true;
   modelGeneration++;

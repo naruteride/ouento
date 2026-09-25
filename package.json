@@ -20,7 +20,7 @@
     "format:check": "prettier --check src scripts tests *.html *.json",
     "test:models": "node scripts/check-models.mjs && node scripts/check-motion-sync.mjs",
     "test:compatibility": "node scripts/check-import-compatibility.mjs",
-    "test:controllers": "node scripts/check-controller.mjs && node scripts/check-model-preview.mjs && node scripts/check-observation-controller.mjs"
+    "test:controllers": "node scripts/check-controller.mjs && node scripts/check-model-preview.mjs && node scripts/check-observation-controller.mjs && node scripts/check-permission-controller.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

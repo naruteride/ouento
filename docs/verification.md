@@ -4,6 +4,24 @@
 
 ## 현재 확인한 환경과 결과
 
+### 2026-09-26 주기 갱신과 화면 권한 수정
+
+- 500ms 활동 이벤트마다 페이지의 `innerHTML`을 교체하고 `scrollTop`을 복원하던 경로를 제거했다. 기존 DOM을 유지하며 변경된 값만 반영한다. 상태 갱신 중 열린 select·선택 텍스트·미저장 초안·스크롤을 유지하고, 명시적인 매핑 취소와 페이지 이동에서는 입력값/읽던 대화 위치를 복구한다.
+- 실제 브라우저 `tests/browser/ui-stability.html`의 21개 검사 모두 통과: 500ms 반복 상태 변경 중 select/option/폼 identity·포커스·초안·본문 Range 유지, main/chat의 scrollTop 대입 0회, 과거 대화 읽기와 페이지 재진입, 매핑 취소, 권한 표시 변경을 확인했다. OS 고유 바운스 애니메이션의 시각 품질을 자동 검사가 대신하지 않는다.
+- `npm test` 63개, `npm run test:controllers` 61개(권한 갱신 13개 포함), Rust `platform::tests` 4개 통과. 변경 JS 포맷·Rust 포맷·`git diff --check` 통과. `npm run tauri -- build --debug --bundles app`로 프런트엔드 정적 검사와 macOS 앱 빌드 성공.
+- 네이티브 앱에서 ‘프레임 속도’와 ‘함께 볼 창’ 팝업이 각각 500ms보다 긴 간격의 두 관측 사이에 유지됨을 확인했다. CUA 좌표 스크롤/드래그는 `noWindowsAvailable`로 실패해 macOS 트랙패드 바운스·본문 마우스 드래그의 최종 실기는 별도 확인이 필요하다. 빌드 직후 첫 실행에서 그래픽 초기화 오류가 나타났으나 같은 앱을 다시 실행해 Mao의 LIVE 상태와 오류 해소를 확인했다. 이 초기 실행 현상은 주기 갱신 회귀와 구분한다.
+- 권한 조회를 초기 snapshot에서 분리해 앱 포커스/표시 복귀·창 목록 새로고침에 최신 상태를 읽는다. 요청 전 진행 중이던 조회의 오래된 결과로 권한을 덮어쓰지 않는다. 거부로 단정하던 문구를 현재 프로세스에 적용되지 않은 상태와 재실행 안내로 수정했다.
+- 시스템 설정의 Ouento 화면 기록 스위치는 on이었지만 현재 프로세스의 preflight는 false였다. 사용자 승인과 직접 Touch ID 인증 후 off/on·재실행으로는 해결되지 않았다. 이전 항목을 제거하고 아래 최종 앱 경로를 다시 추가한 뒤 앱에서 ‘화면 접근이 허용되어 있어요’를 확인했다. 같은 실행 파일을 한 번 더 재실행한 뒤에도 허용 상태가 유지됐다. 실제 사용자 화면 캡처·외부 AI 호출은 하지 않았다.
+- 현재 앱은 ad-hoc 개발 서명이며 유효한 개발 서명 인증서는 설치되어 있지 않다. 이후 재빌드 시 OS 허용 항목 재등록이 다시 필요할 수 있다. 빌드 간 권한 유지는 동일한 Apple 개발 서명 구성으로 별도 해결해야 한다. [Apple DTS 근거](https://developer.apple.com/forums/thread/819406).
+- 시험 앱: `src-tauri/target/debug/bundle/macos/Ouento.app`, 실행 파일 SHA-256 `537cb2cc16f8ad2ddf9407d1f344b8924e4e50e8a22a3a399b4a1ae341d04f29`. Windows 실기는 수행하지 않았다.
+
+### 2026-09-23 화면 구석 배치 수정
+
+- 드래그 종료·2초 주기 검사·재실행 시 화면 안으로 강제 이동하던 제한을 제거했다. 화면 밖 좌표는 위치 파일 버전 2로 저장하고 기존 버전 1도 읽는다. 모니터 제거 복구와 Retina 크기 반올림 회귀를 포함한 `cargo test --manifest-path src-tauri/Cargo.toml --locked desktop::tests` 11개가 통과했다.
+- 사용자가 트레이 또는 설정 창의 ‘캐릭터 표시’를 직접 누르면 우측 하단으로 되찾는다. 앱 시작 시 자동 표시는 저장 위치를 유지한다. `node scripts/check-controller.mjs` 18개 시나리오와 `npm run tauri -- build --debug --bundles app`가 통과했다.
+- 새 macOS 앱에서 CUA로 Mao 렌더링, 설정 창의 표시 버튼, 화면 밖에 저장된 위치의 명시적 복구를 확인했다. 복구 후 위치 파일의 `(horizontal, vertical) = (1, 1)`이 67초 뒤에도 그대로였다. 캐릭터 창은 포커스를 받지 않는 dialog이며 CUA 좌표 드래그가 `noWindowsAvailable`로 실패하므로, 실제 구석까지 드래그·재실행하는 최종 GUI 검증은 **미완료**다. 권한으로 앱 읽기와 일반 창 버튼 조작은 가능해졌으며, 현재 실패를 권한 거부로 기록하지 않는다. Windows 실기는 이번에도 수행하지 않았다.
+- 시험 앱: `src-tauri/target/debug/bundle/macos/Ouento.app`, 실행 파일 SHA-256 `affdf7a9cb0c29f8c4ad65ab900aae77565d7e2b6609c6d7f748f22b9e5ced24`. 아래 표의 2026-09-22 전체 회귀 결과는 당시 기록이며, 이번 변경에서는 위 범위만 재실행했다.
+
 | 항목 | 사실 |
 | --- | --- |
 | 호스트 | macOS 26.6.2, build 25G83, arm64 |
