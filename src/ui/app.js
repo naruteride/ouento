@@ -103,6 +103,7 @@ const defaults = {
     meeting: false,
     windowId: '',
     cloudConsent: false,
+    screenConsent: false,
     allowedApps: [],
     sensitiveApps: [],
     status: '관찰하지 않음',
@@ -515,6 +516,7 @@ export class OuentoApp extends HTMLElement {
       details.open = snapshot.expanded?.[index] || false;
     });
     this._updatePersonaQuote();
+    this._updateObservationScope();
   }
 
   render(preserveInputs = true) {
@@ -588,6 +590,7 @@ export class OuentoApp extends HTMLElement {
     for (const field of panel.querySelectorAll('input[type="range"][data-dirty]'))
       this._updateRange(field);
     this._updatePersonaQuote();
+    this._updateObservationScope();
     patchHTML(
       this.shadowRoot.getElementById('page-bottom'),
       this._page === 'chat'
@@ -662,9 +665,14 @@ export class OuentoApp extends HTMLElement {
 
   _observePage() {
     const o = this._data.observation;
-    const paused = o.typingState !== false || o.quiet || o.focus || o.meeting;
-    const notices = `${o.error ? `<div class="notice error" role="alert"><p>${escape(o.error)}</p></div>` : ''}${o.mode !== 'off' && paused ? `<div class="notice"><p>${o.typingState === null ? '입력 활동을 확인할 수 없어 자동 관찰을 쉬어요. 입력 감지 권한을 확인해 주세요. ' : '입력·집중·회의 중이거나 조용히 있을 때는 자동 반응을 쉬어요. '}${o.manualAvailable ? '‘지금 화면 한 번 보기’로 허용한 화면의 분석을 요청할 수 있어요. ' : '화면 분석을 요청하려면 관찰 범위·화면 잠금·창 표시 상태를 확인해 주세요. '}직접 텍스트·음성 대화는 계속 사용할 수 있어요.</p></div>` : ''}`;
-    return `${notices}<form id="observation-form"><div class="card"><div class="card-header"><div><h2>함께 볼 범위</h2><p>선택한 범위를 적용하기 전에는 관찰을 시작하지 않아요.</p></div><button class="button danger" type="button" data-do="observation-stop">${icon('stop')}관찰 중지</button></div><div class="mode-options">${[
+    const permissionHelp =
+      '현재 실행 중인 Ouento에는 화면 접근이 적용되지 않았어요. ' +
+      (this._data.platform === 'macOS'
+        ? '시스템 설정에서 Ouento의 화면 기록을 허용해 주세요. 이미 허용했는데 계속 표시되면 화면 기록 목록에서 Ouento를 제거한 다음, 현재 사용하는 Ouento.app을 다시 추가해 주세요. 변경 후 앱을 완전히 종료하고 다시 열어 주세요.'
+        : '운영체제 설정에서 Ouento의 화면 접근을 허용한 뒤 화면 권한을 다시 확인해 주세요.');
+    const paused = o.typingState === true || o.quiet || o.focus || o.meeting;
+    const notices = `${o.error ? `<div class="notice error" role="alert"><p>${escape(o.error)}</p></div>` : ''}${o.mode !== 'off' && o.typingState === null ? '<div class="notice"><p>입력 활동 감지를 사용할 수 없어요. 자동 관찰은 입력 감지 없이 동작해요. 집중·회의 모드로 먼저 말하기를 멈출 수 있어요.</p></div>' : ''}${o.mode !== 'off' && paused ? `<div class="notice"><p>입력·집중·회의 중이거나 조용히 있을 때는 자동 반응을 쉬어요. ${o.manualAvailable ? '‘지금 화면 한 번 보기’로 허용한 화면의 분석을 요청할 수 있어요. ' : '화면 분석을 요청하려면 관찰 범위·화면 잠금·창 표시 상태를 확인해 주세요. '}직접 텍스트·음성 대화는 계속 사용할 수 있어요.</p></div>` : ''}`;
+    return `${notices}<form id="observation-form"><div class="card"><div class="card-header"><div><h2>함께 볼 범위</h2><p>적용한 전체 모니터·허용 앱 설정은 다시 실행해도 유지돼요. 관찰 중지를 누르면 꺼진 상태로 기억해요.</p></div><button class="button danger" type="button" data-do="observation-stop">${icon('stop')}관찰 중지</button></div><div class="mode-options">${[
       [
         'off',
         '관찰하지 않기',
@@ -673,12 +681,17 @@ export class OuentoApp extends HTMLElement {
       [
         'selected',
         '선택한 창만 함께 보기',
-        '지정한 창의 화면만 함께 보고, 요청한 순간에 반응해요.',
+        '지정한 창의 화면만 함께 보고, 필요한 순간에 반응해요.',
       ],
       [
         'allowed',
         '허용한 앱에서 먼저 반응하기',
         '허용 목록에 있는 앱의 사건과 화면을 보고, 필요한 순간에 먼저 말을 건네요.',
+      ],
+      [
+        'screen',
+        '지금 사용하는 모니터 전체 보기',
+        '마우스가 있는 모니터를 따라가며 화면 전체를 봐요. 창이나 앱을 하나씩 고르지 않아도 돼요.',
       ],
     ]
       .map(
@@ -686,8 +699,8 @@ export class OuentoApp extends HTMLElement {
           `<label class="mode-option"><input type="radio" name="mode" value="${id}" ${checked(o.mode === id)}><span><strong>${title}</strong><small>${text}</small></span></label>`,
       )
       .join('')}</div>
-      <div class="section-divider"></div><div class="form-grid"><label class="field"><span>함께 볼 창</span><select name="windowId"><option value="">창을 선택해 주세요</option>${o.windows.map((window) => `<option value="${escape(window.id)}" ${selected(window.id, o.windowId)}>${escape(window.appName || window.appId)} · ${escape(window.title)}</option>`).join('')}</select><button type="button" class="text-button" data-do="observation-refresh">${icon('refresh')}창 목록 새로고침</button><button type="button" class="text-button" data-do="observation-add-app">${icon('plus')}선택한 창의 앱을 허용 목록에 추가</button></label><div class="field"><span>화면 접근 권한</span><p class="muted">${o.permission === 'granted' ? '화면 접근이 허용되어 있어요.' : o.permission === 'denied' ? '현재 실행 중인 Ouento에는 화면 접근이 적용되지 않았어요. 시스템 설정에서 Ouento의 화면 기록을 허용했다면 앱을 완전히 종료한 뒤 다시 열어 주세요.' : '함께 보기를 켤 때 접근 권한을 확인해요.'}</p><button class="button" type="button" data-do="permission-request">${icon('shield')}화면 권한 확인</button></div><label class="field"><span>먼저 반응해도 되는 앱</span><textarea class="field-input" name="allowedApps" rows="3" placeholder="앱 식별자를 한 줄에 하나씩 입력하세요.">${escape(listText(o.allowedApps))}</textarea><small class="field-help">창 선택 목록의 앱 식별자를 사용해요.</small></label><label class="field"><span>언제나 제외할 민감 앱</span><textarea class="field-input" name="sensitiveApps" rows="3" placeholder="비밀번호·금융 등 민감한 앱 식별자">${escape(listText(o.sensitiveApps))}</textarea><small class="field-help">허용 목록에 있어도 제외해요.</small></label></div>
-      <div class="notice">${icon('shield')}<p>함께 볼 때는 선택한 창의 화면과 앱·창 이름을 설정한 AI 제공자에게 보낼 수 있어요. 원본 화면은 기본 저장하지 않아요. 다른 창이나 화면에 가려진 민감한 내용을 먼저 확인해 주세요.</p></div><label class="check-row"><input type="checkbox" name="cloudConsent" ${checked(o.cloudConsent)}>선택한 화면과 앱·창 정보를 AI 제공자에게 전달하는 데 동의해요.</label><div class="form-footer"><button class="button" type="button" data-do="observation-analyze" ${disabled(o.mode === 'off' || !o.manualAvailable || o.manualAnalyzing)}>${o.manualAnalyzing ? '요청한 화면 분석 중…' : '지금 화면 한 번 보기'}</button><button class="button primary" type="submit">선택한 범위 적용</button></div></div>
+      <div class="section-divider"></div><div class="form-grid"><label class="field" data-observation-scope="selected allowed"><span>함께 볼 창</span><select name="windowId"><option value="">창을 선택해 주세요</option>${o.windows.map((window) => `<option value="${escape(window.id)}" ${selected(window.id, o.windowId)}>${escape(window.appName || window.appId)} · ${escape(window.title)}</option>`).join('')}</select><button type="button" class="text-button" data-do="observation-refresh">${icon('refresh')}창 목록 새로고침</button><button type="button" class="text-button" data-do="observation-add-app">${icon('plus')}선택한 창의 앱을 허용 목록에 추가</button></label><div class="field"><span>화면 접근 권한</span><p class="muted">${o.permission === 'granted' ? '화면 접근이 허용되어 있어요.' : o.permission === 'denied' ? escape(permissionHelp) : '함께 보기를 켤 때 접근 권한을 확인해요.'}</p><button class="button" type="button" data-do="permission-request">${icon('shield')}화면 권한 확인</button></div><label class="field" data-observation-scope="allowed"><span>먼저 반응해도 되는 앱</span><textarea class="field-input" name="allowedApps" rows="3" placeholder="앱 식별자를 한 줄에 하나씩 입력하세요.">${escape(listText(o.allowedApps))}</textarea><small class="field-help">창 선택 목록의 앱 식별자를 사용해요.</small></label><label class="field"><span>언제나 제외할 민감 앱</span><textarea class="field-input" name="sensitiveApps" rows="3" placeholder="비밀번호·금융 등 민감한 앱 식별자">${escape(listText(o.sensitiveApps))}</textarea><small class="field-help">허용 목록에 있어도 제외해요.</small></label></div>
+      <div class="notice">${icon('shield')}<p>함께 볼 때는 선택한 범위의 화면과 앱·창 정보를 설정한 AI 제공자에게 보낼 수 있어요. 원본 화면은 기본 저장하지 않아요.</p></div><label class="check-row"><input type="checkbox" name="cloudConsent" ${checked(o.cloudConsent)}>선택한 화면과 앱·창 정보를 AI 제공자에게 전달하는 데 동의해요.</label><div data-observation-scope="screen"><div class="notice warning"><p>모니터 전체 보기에는 같은 모니터에 보이는 다른 창·알림·바탕화면도 포함돼요. 마우스를 다른 모니터로 옮기면 대상도 바뀌어요. Ouento 창은 제외하며, 제외 목록의 민감 앱이 화면에 겹치면 분석을 쉬어요. 모든 민감정보를 자동으로 식별할 수는 없어요.</p></div><label class="check-row"><input type="checkbox" name="screenConsent" ${checked(o.screenConsent)}>마우스가 있는 모니터 전체를 AI 제공자에게 전달하는 데 동의해요.</label></div><div class="form-footer"><button class="button" type="button" data-do="observation-analyze" ${disabled(o.mode === 'off' || !o.manualAvailable || o.manualAnalyzing)}>${o.manualAnalyzing ? '요청한 화면 분석 중…' : '지금 화면 한 번 보기'}</button><button class="button primary" type="submit">선택한 범위 적용</button></div></div>
       <div class="card"><h2>방해하지 않는 순간</h2>${toggle('focus', '집중하고 있어요', '집중 모드에서는 먼저 말하지 않아요.', o.focus)}${toggle('meeting', '회의 중이에요', '회의가 끝날 때까지 선제 발화를 멈춰요.', o.meeting)}<p class="field-help" style="margin-top:11px">위 옵션도 ‘선택한 범위 적용’으로 저장해요. 조용히 있기는 발화만 멈추고, 관찰 중지는 수집과 전송도 멈춰요.</p>${o.capabilities.length ? `<div class="capability-list">${o.capabilities.map((cap) => `<div class="capability"><div><span class="capability-label">${escape(cap.name)}</span><p class="capability-detail">${escape(cap.detail)}</p></div><span class="capability-badge ${cap.supported ? '' : 'unsupported'}">${cap.supported ? '사용 가능' : '미지원'}</span></div>`).join('')}</div>` : ''}</div></form>`;
   }
 
@@ -857,6 +870,7 @@ export class OuentoApp extends HTMLElement {
     const field = event.target;
     if (field.matches('input,select,textarea')) field.dataset.dirty = 'true';
     if (field.name === 'preset') this._updatePersonaQuote();
+    if (field.name === 'mode') this._updateObservationScope();
     if (field.form?.getAttribute('id') === 'mapping-form')
       this._emit('model-mapping-preview', { mapping: this._mappingValues(field.form) });
     if (field.name === 'previewPreserveIdentity') {
@@ -872,6 +886,14 @@ export class OuentoApp extends HTMLElement {
   _updateRange(field) {
     const output = field.parentElement.querySelector('output');
     if (output) setText(output, `${Math.round(Number(field.value) * 100)}%`);
+  }
+
+  _updateObservationScope() {
+    const form = this.shadowRoot.getElementById('observation-form');
+    if (!form) return;
+    const mode = form.querySelector('[name="mode"]:checked')?.value || 'off';
+    for (const section of form.querySelectorAll('[data-observation-scope]'))
+      section.hidden = !section.dataset.observationScope.split(' ').includes(mode);
   }
 
   _updatePersonaQuote() {
@@ -925,6 +947,7 @@ export class OuentoApp extends HTMLElement {
           mode: value('mode'),
           windowId: value('windowId'),
           cloudConsent: has('cloudConsent'),
+          screenConsent: value('mode') === 'screen' && has('screenConsent'),
           allowedApps: splitList(value('allowedApps')),
           sensitiveApps: splitList(value('sensitiveApps')),
           focus: has('focus'),
@@ -936,6 +959,13 @@ export class OuentoApp extends HTMLElement {
         }
         if (observation.mode === 'selected' && !observation.windowId) {
           this.notify('함께 볼 창을 먼저 선택해 주세요.', 'error');
+          return;
+        }
+        if (observation.mode === 'screen' && !observation.screenConsent) {
+          this.notify(
+            '모니터 전체 보기에는 다른 창과 알림도 포함돼요. 전체 화면 전송에 별도로 동의해 주세요.',
+            'error',
+          );
           return;
         }
         if (observation.mode === 'allowed' && !observation.allowedApps.length) {

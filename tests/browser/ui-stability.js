@@ -318,6 +318,42 @@ async function mappingResetChecks() {
   );
 }
 
+async function screenScopeChecks() {
+  app.update({ observation: { mode: 'off', cloudConsent: true, screenConsent: false } });
+  app.navigate('observe');
+  const form = query('#observation-form');
+  const screenMode = query('[name="mode"][value="screen"]');
+  screenMode.click();
+  const consent = form.elements.screenConsent;
+  const screenSection = query('[data-observation-scope="screen"]');
+  check(
+    '모니터 전체 선택 시 별도 동의를 표시하고 개별 창·앱 설정 숨김',
+    !screenSection.hidden &&
+      !consent.checked &&
+      query('[data-observation-scope="selected allowed"]').hidden &&
+      query('[data-observation-scope="allowed"]').hidden,
+  );
+  let submitted;
+  const listener = (event) => {
+    if (event.detail.type === 'observation-save') submitted = event.detail.observation;
+  };
+  app.addEventListener('action', listener);
+  form.requestSubmit();
+  check('기존 창 전송 동의만으로 전체 모니터 저장 불가', !submitted);
+  consent.click();
+  await activityTicks();
+  check(
+    '상태 갱신 중 모니터 선택·추가 동의 초안 유지',
+    screenMode.checked && consent.checked && !screenSection.hidden,
+  );
+  form.requestSubmit();
+  check(
+    '전체 모니터 두 동의 후 개별 창 없이 저장 가능',
+    submitted?.mode === 'screen' && submitted.cloudConsent && submitted.screenConsent,
+  );
+  app.removeEventListener('action', listener);
+}
+
 async function run() {
   runButton.disabled = true;
   status.removeAttribute('data-passed');
@@ -335,6 +371,7 @@ async function run() {
     ['함께 보기·권한 표시', observationChecks],
     ['대화·스크롤', chatChecks],
     ['캐릭터 매핑 변경 취소', mappingResetChecks],
+    ['현재 모니터 동의와 범위', screenScopeChecks],
   ]) {
     status.textContent = `${name} 검사 중…`;
     try {

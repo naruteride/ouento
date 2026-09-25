@@ -11,6 +11,9 @@
 - `platform::request_screen_permission() -> Result<bool, String>`: 사용자가 관찰을 켰을 때만 호출한다.
 - `platform::list_windows() -> Result<Vec<WindowInfo>, String>`: 자기 프로세스와 제목 없는 창을 제외한다.
 - `platform::capture_window(&CaptureRequest) -> Result<CapturedFrame, String>`: 캡처 직전/후 창 ID·PID·앱 이름을 재검사한다. 요청의 `consented`가 false이면 수집하지 않는다. root의 관찰 세대/허용 범위 검사는 별도로 전송 직전에 다시 필요하다.
+- `platform::current_screen() -> Result<ScreenInfo, String>`: 마우스가 있는 모니터의 ID와 OS 좌표계의 영역을 반환한다.
+- `platform::validate_screen(&ScreenInfo, &[String])`: 현재 모니터·권한·잠금·보이는 민감 앱의 겹침을 확인한다. 제목 없는 창도 검사하며 앱 식별을 확인하지 못하면 전체 화면 분석을 쉰다.
+- `platform::capture_screen(&ScreenCaptureRequest) -> Result<CapturedScreen, String>`: 명시적 전체 모니터 동의로만 호출한다. 자기 앱 창을 제외하고 캡처 전후의 모니터·민감 앱·자체 창 제외를 검사한다. 일반 창의 이동·크기 변경·열기·닫기는 캡처 실패 조건이 아니다. 결과·음성·재생 직전에도 같은 범위와 최신 권한을 재확인한다.
 - `platform::cursor_position() -> Result<CursorSample, String>`
 - `platform::primary_button_down() -> bool`: 네이티브 드래그 중 클릭 통과 상태를 고정하고 실제 마우스 해제 시 복구하기 위한 버튼 상태.
 - `platform::activity_snapshot() -> ActivitySnapshot`
@@ -26,9 +29,13 @@
 
 macOS 화면 기록 권한은 현재 프로세스의 `CGPreflightScreenCaptureAccess` 결과를 사용한다. false는 첫 요청 전·거부·재시작 필요·기존 개발 빌드의 허용 항목과 불일치를 구분하지 못하므로 사용자가 거부했다고 단정하지 않는다. 이미 허용된 프로세스에는 다시 요청하지 않는다. 시스템 설정의 스위치나 다른 창 제목이 보인다는 이유로 캡처 권한을 우회하지 않는다. 개발 빌드의 ad-hoc 서명은 재빌드마다 바뀔 수 있으며, 빌드 간 권한 유지에는 동일한 개발 서명 인증서가 필요하다. [Apple DTS 설명](https://developer.apple.com/forums/thread/819406).
 
+로컬 `.app` 빌드는 `npm run signing:setup`으로 준비한 전용 인증서를 재사용한다. 개인 키는 로그인 키체인에 비추출 형태로 저장하고, 생성 중 임시 PEM은 소유자 전용 디렉토리에서 사용한 뒤 제거한다. 시스템 신뢰·기존 키·다른 앱의 권한은 변경하지 않는다. 번들 식별자 `com.ouento.desktop`과 인증서 leaf 지문을 함께 고정한 designated requirement로 번들 전체를 서명하고 `codesign --verify --deep --strict`로 검증한다. 식별자만 고정한 ad-hoc 요구사항은 사용하지 않는다. `.local/macos-signing.json`에는 공개 지문만 저장하며, 설정 후 인증서가 안 보이거나 지문이 바뀌면 빌드를 실패시킨다. 샌드박스에서 키체인이 안 보이는 경우도 미서명 성공으로 처리하지 않는다. 다른 운영체제·CI·명시적 Apple 서명은 기존 경로를 유지한다. 이 로컬 인증서는 Developer ID 배포·공증을 대신하지 않는다. [Apple 코드 식별](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements), [자체 서명 인증서와 요구사항](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html).
+
 Windows의 `GetAsyncKeyState`는 논리 기본 버튼이 아니라 물리 버튼을 읽는다. `GetSystemMetrics(SM_SWAPBUTTON)`에 따라 왼쪽/오른쪽을 선택해 기본 버튼을 교환한 사용자도 드래그 유지 상태를 올바르게 읽는다. [Microsoft API 계약](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate). 호스트에서 타입 검사는 했지만 Windows 링크·실기 검증은 별도다.
 
 ## 좌표와 관찰 사실
+
+기존 ad-hoc 서명에서 인증서 서명으로 전환할 때는 저장된 TCC 요구사항의 일회성 재등록이 필요할 수 있다. 2026-09-26 실기에서 macOS의 `Failed to match existing code requirement` 로그로 기존 cdhash 요구사항과 현재 인증서 요구사항의 불일치를 확인했다. 화면 기록 스위치를 켜거나 재실행하는 것만으로 기존 요구사항이 교체되지 않았다. Ouento의 `ScreenCapture` 기록만 초기화하고 사용자가 다시 인증·허용한 후 새 프로세스에서는 실제 `CGPreflightScreenCaptureAccess`가 허용을 반환했다. 앱 시작 시 자동 초기화하거나 거부를 허용으로 대체하지 않는다. [Apple 단일 앱 권한 초기화 절차](https://developer.apple.com/documentation/xcode/resetting-access-to-protected-resources-in-macos).
 
 macOS의 CGEvent 전역 커서는 주 디스플레이 왼쪽 위 기준 **desktop points**, Windows GetCursorPos는 DPI-aware 앱의 **physical pixels**다. `CursorSample.coordinateSpace`로 구분한다. 혼합 배율 환경에서 macOS 전역 점에 단일 화면 배율을 곱하지 않는다. Tauri 창과 비교하는 네이티브 hit test에는 동일 좌표계를 반환하는 Tauri `Window::cursor_position`/창 좌표를 사용하고 CSS 좌표 변환 시 해당 창 배율을 적용한다.
 
@@ -36,13 +43,19 @@ macOS의 CGEvent 전역 커서는 주 디스플레이 왼쪽 위 기준 **deskto
 
 기본 차단 목록은 완전한 민감 앱 탐지기가 아니다. 명시적 창/앱 허용과 함께 적용해야 한다. 브라우저 주소·페이지 내 민감정보를 보장해서 탐지하지 않는다. `CapturedFrame`은 원시 화면 데이터이므로 로그/영속 저장 금지다.
 
-입력 상태는 내용 없는 최근 활동 여부다. macOS 입력 모니터링을 허용하지 않으면 `typing = null`이며 권한을 자동 요청하지 않는다. Windows는 `GetLastInputInfo`의 마지막 입력 시각과 `GetTickCount`를 비교하므로 폴링 사이에 완료된 짧은 입력도 반영한다. 이 API는 키보드와 마우스를 구분하지 않으므로 Windows에서는 둘 다 1.5초 동안 보수적으로 억제하며, 키보드만 감지한다고 표시하지 않는다. 키코드·문자·입력 내용은 읽거나 저장하지 않는다. API 실패나 현재보다 미래로 해석되는 입력 시각은 `null`로 처리한다. 이 시각은 해당 세션의 입력만 나타내고 일부 주입 입력에서는 증가가 보장되지 않는다. 회의 및 집중 모드는 OS에서 신뢰할 수 있는 공통 API가 없으므로 `null`이다. UI의 수동 집중/회의 모드로 억제한다. 미지원 값을 `false`로 바꾸지 않는다.
+`currentScreen`은 선택 창 캡처와 별도의 범위다. 다른 창·알림·바탕화면을 포함하므로 추가 `screenConsent` 없이 기존 창 동의를 재사용하지 않는다. 모니터 좌표는 macOS desktop points, Windows physical pixels이며 실제 반환 비트맵의 픽셀 크기와 구분한다. 마우스가 다른 모니터로 이동하거나 화면 구성이 바뀌면 이전 요청을 폐기한다. 민감 앱이 다른 창 뒤에 가려져 있어도 같은 모니터에 겹친다고 판정되면 보수적으로 분석을 쉴 수 있다. 전체 화면에서도 모든 민감정보를 자동 식별한다고 보장하지 않는다.
+
+macOS 전체 모니터 캡처는 ScreenCaptureKit의 앱 제외 필터와 `SCScreenshotManager`를 사용한다. 이 모드는 macOS 14 이상이 필요하고, 프레임워크 연결 때문에 앱 자체 최소 버전도 12.0에서 12.3으로 올렸다. `objc2-screen-capture-kit`·Foundation·CoreGraphics 0.3.2, objc2 0.6.4, block2 0.6.2를 고정했다. 구버전에서는 이 모드를 오류로 안내하며 선택 창 기능은 별도 경로다. [Apple ScreenCaptureKit 및 Screenshot API 설명](https://developer.apple.com/videos/play/wwdc2023/10136/).
+
+Windows는 원시 `EnumWindows` 목록으로 제목 없는 창까지 검사하고, 자체 창에 `WDA_EXCLUDEFROMCAPTURE`를 적용한 결과를 확인한 뒤 기존 xcap WGC 백엔드로 캡처한다. 이 모드는 Windows 10 2004 이상과 DWM 구성이 필요하다. 캡처 후 이전 제외 설정을 복원한다. [Microsoft 캡처 제외 계약](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity). 양 OS의 실제 전체 화면 픽셀 검증은 별도로 남아 있다.
+
+입력 상태는 내용 없는 최근 활동 여부다. macOS 입력 모니터링을 허용하지 않으면 `typing = null`이며 권한을 자동 요청하지 않는다. null은 자동 관찰을 막지 않으며, 실제 `typing = true`일 때만 입력 중 자동 억제를 적용한다. Windows는 `GetLastInputInfo`의 마지막 입력 시각과 `GetTickCount`를 비교하므로 폴링 사이에 완료된 짧은 입력도 반영한다. 이 API는 키보드와 마우스를 구분하지 않으므로 Windows에서는 둘 다 1.5초 동안 보수적으로 억제하며, 키보드만 감지한다고 표시하지 않는다. 키코드·문자·입력 내용은 읽거나 저장하지 않는다. API 실패나 현재보다 미래로 해석되는 입력 시각은 `null`로 처리한다. 이 시각은 해당 세션의 입력만 나타내고 일부 주입 입력에서는 증가가 보장되지 않는다. 회의 및 집중 모드는 OS에서 신뢰할 수 있는 공통 API가 없으므로 `null`이다. UI의 수동 집중/회의 모드로 억제한다. 미지원 값을 `false`로 바꾸지 않는다.
 
 위 입력 정책은 자동 화면 분석과 OS 사건의 선제 반응에 적용한다. 사용자의 ‘지금 화면 한 번 보기’는 Rust가 `onDemand` 티켓으로 발급해 입력 중/미확인을 허용한다. 이 예외가 OS 캡처 경계의 잠금·표시·화면 권한·동의·선택 대상/민감 앱 검사를 생략하지는 않는다.
 
 ## 공통 OS 사건
 
-`WindowEventTracker::poll(&ObservationSettings)`은 허용 앱 모드에서만 실제 활성 창 변경을 감지한다. 첫 표본은 기준점이며 최소 250ms 동안 같은 최종 창을 확인한 후 사건을 만든다. 현재 호출 간격은 500ms이므로 실제 시작 지연 보장이 아니다. 숨김·잠금·입력 미확인 또는 모드 변경 시 추적기를 초기화한다. 입력 중에는 기존 기준점을 유지하며 호출을 쉬고, 입력이 멈춘 후 현재 최종 창을 새로 안정화한다.
+`WindowEventTracker::poll(&ObservationSettings)`은 허용 앱 모드에서만 실제 활성 창 변경을 감지한다. 첫 표본은 기준점이며 최소 250ms 동안 같은 최종 창을 확인한 후 사건을 만든다. 현재 호출 간격은 500ms이므로 실제 시작 지연 보장이 아니다. 숨김·잠금 또는 모드 변경 시 추적기를 초기화한다. 입력 중에는 기존 기준점을 유지하며 호출을 쉬고, 입력이 멈춘 후 현재 최종 창을 새로 안정화한다.
 
 `OsEvent` 필드는 `timestamp`(현재 창을 확인한 UNIX ms), `target:{appId,windowId,pid}`, `kind:"activeWindowChanged"`, `certainty:"observed"`, `source:"xcapMacos"|"xcapWindows"`, `scope:{mode:"allowedApps",appId,windowId}`다. 사건을 생성할 때 허용 앱/민감 앱을 검사하고 백엔드에서 다시 현재 허용 범위와 3초 신선도를 검사한다. 창 제목·화면·키 입력 내용은 사건에 넣지 않는다. 창이 사라졌다는 이유만으로 완료·성공 반응을 생성하지 않는다. 선택 창 함께 보기에는 이 선제 사건 반응을 추가하지 않는다.
 

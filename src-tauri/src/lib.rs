@@ -9,7 +9,8 @@ pub mod storage;
 use domain::{
     observation::{ObservationPurpose, ObservationRequest, ObservationTarget, RuntimeContext},
     observation_context::{
-        validate_native_target, NativeObservationState, ObservationContext, WindowIdentity,
+        validate_native_target, NativeObservationState, NativeObservationTarget,
+        ObservationContext, WindowIdentity,
     },
     types::*,
     Backend,
@@ -341,8 +342,10 @@ async fn analyze_window(
         let settings = backend.settings()?;
         if settings.observation.mode == domain::types::ObservationMode::Off
             || !settings.observation.cloud_consent
+            || (settings.observation.mode == ObservationMode::CurrentScreen
+                && !settings.observation.screen_consent)
         {
-            return Err("관찰할 창과 전송 동의를 먼저 선택해 주세요.".into());
+            return Err("관찰할 범위와 전송 동의를 먼저 선택해 주세요.".into());
         }
         if !observation_surface_visible(&prepare_app)
             || platform::activity_snapshot().locked != Some(false)
@@ -350,50 +353,63 @@ async fn analyze_window(
             return Err("화면 잠금 또는 창 숨김 상태에서는 화면을 분석하지 않습니다.".into());
         }
         preparation.check()?;
-        let windows = platform::list_windows()?;
+        let windows = if settings.observation.mode == ObservationMode::CurrentScreen {
+            Vec::new()
+        } else {
+            platform::list_windows()?
+        };
         preparation.check()?;
         let focus = windows.iter().find(|w| w.focused).map(WindowIdentity::from);
-        let target = match settings.observation.mode {
-            domain::types::ObservationMode::SelectedWindow => windows
-                .iter()
-                .find(|w| Some(w.id.to_string()) == settings.observation.selected_window_id),
-            domain::types::ObservationMode::AllowedApps => windows.iter().find(|w| {
-                w.focused
-                    && settings
-                        .observation
-                        .allowed_apps
-                        .iter()
-                        .any(|app| app.eq_ignore_ascii_case(&w.app_id))
-            }),
-            _ => None,
-        }
-        .ok_or("현재 허용 범위에서 볼 수 있는 창이 없습니다.")?;
-        let native_target = WindowIdentity::from(target);
-        if settings.observation.mode == ObservationMode::SelectedWindow
-            && approval.as_ref() != Some(&native_target)
-        {
-            return Err(
-                "허용했던 창이 변경되었습니다. 관찰을 중지한 후 창을 다시 선택해 주세요.".into(),
-            );
-        }
+        let native_target = if settings.observation.mode == ObservationMode::CurrentScreen {
+            NativeObservationTarget::Screen(platform::current_screen()?)
+        } else {
+            let target = match settings.observation.mode {
+                ObservationMode::SelectedWindow => windows
+                    .iter()
+                    .find(|w| Some(w.id.to_string()) == settings.observation.selected_window_id),
+                ObservationMode::AllowedApps => windows.iter().find(|w| {
+                    w.focused
+                        && settings
+                            .observation
+                            .allowed_apps
+                            .iter()
+                            .any(|app| app.eq_ignore_ascii_case(&w.app_id))
+                }),
+                _ => None,
+            }
+            .ok_or("현재 허용 범위에서 볼 수 있는 창이 없습니다.")?;
+            let identity = WindowIdentity::from(target);
+            if settings.observation.mode == ObservationMode::SelectedWindow
+                && approval.as_ref() != Some(&identity)
+            {
+                return Err(
+                    "허용했던 창이 변경되었습니다. 관찰을 중지한 후 창을 다시 선택해 주세요."
+                        .into(),
+                );
+            }
+            NativeObservationTarget::Window(identity)
+        };
         // Debounce rapid focus changes before collecting pixels.
         std::thread::sleep(Duration::from_millis(250));
         preparation.check()?;
-        let stable_windows = platform::list_windows()?;
-        validate_native_target(
-            &native_target,
-            &focus,
-            &stable_windows,
-            settings.observation.mode,
-        )?;
-        let ticket = backend.begin_prepared_observation(
-            &preparation,
-            ObservationTarget {
-                app_id: target.app_id.clone(),
-                window_id: target.id.to_string(),
-            },
-            "",
-        )?;
+        let target = match &native_target {
+            NativeObservationTarget::Window(window) => {
+                let stable_windows = platform::list_windows()?;
+                validate_native_target(window, &focus, &stable_windows, settings.observation.mode)?;
+                ObservationTarget {
+                    app_id: window.app_id.clone(),
+                    window_id: window.id.to_string(),
+                }
+            }
+            NativeObservationTarget::Screen(screen) => {
+                platform::validate_screen(screen, &settings.observation.blocked_apps)?;
+                ObservationTarget {
+                    app_id: "screen".into(),
+                    window_id: format!("screen:{}", screen.id),
+                }
+            }
+        };
+        let ticket = backend.begin_prepared_observation(&preparation, target, "")?;
         let context = ObservationContext {
             ticket: ticket.clone(),
             target: native_target,
@@ -403,21 +419,38 @@ async fn analyze_window(
         verify_observation_context(&prepare_app, &backend, &context)?;
         backend.validate_observation(&ticket)?;
         preparation.check()?;
-        let frame = platform::capture_window(&platform::CaptureRequest {
-            window_id: target.id,
-            pid: target.pid,
-            app_id: target.app_id.clone(),
-            consented: settings.observation.cloud_consent,
-            excluded_apps: settings.observation.blocked_apps.clone(),
-        })?;
+        let (image_base64, mime_type) = match &context.target {
+            NativeObservationTarget::Window(target) => {
+                let frame = platform::capture_window(&platform::CaptureRequest {
+                    window_id: target.id,
+                    pid: target.pid,
+                    app_id: target.app_id.clone(),
+                    consented: settings.observation.cloud_consent,
+                    excluded_apps: settings.observation.blocked_apps.clone(),
+                })?;
+                (frame.image_base64, frame.mime_type)
+            }
+            NativeObservationTarget::Screen(screen) => {
+                let frame = platform::capture_screen(&platform::ScreenCaptureRequest {
+                    screen: screen.clone(),
+                    consented: settings.observation.cloud_consent
+                        && settings.observation.screen_consent,
+                    excluded_apps: settings.observation.blocked_apps.clone(),
+                })?;
+                if frame.screen != *screen {
+                    return Err("캡처한 모니터가 관찰 범위와 다릅니다.".into());
+                }
+                (frame.image_base64, frame.mime_type)
+            }
+        };
         backend.validate_observation(&ticket)?;
         preparation.check()?;
         verify_observation_context(&prepare_app, &backend, &context)?;
-        Ok((context, frame))
+        Ok((context, image_base64, mime_type))
     })
     .await
     .map_err(|e| e.to_string())??;
-    let (context, frame) = prepared;
+    let (context, image_base64, mime_type) = prepared;
     let backend = state.backend.clone();
     let watcher_backend = backend.clone();
     let watcher_context = context.clone();
@@ -439,13 +472,34 @@ async fn analyze_window(
     };
     let request = ObservationRequest {
         ticket: context.ticket.clone(),
-        image_base64: frame.image_base64,
-        mime_type: frame.mime_type,
+        image_base64,
+        mime_type,
     };
     let cancellation_ticket = context.ticket.clone();
+    let validation_app = app.clone();
+    let validation_backend = backend.clone();
+    let validation_context = context.clone();
+    let validate = move || {
+        let app = validation_app.clone();
+        let backend = validation_backend.clone();
+        let context = validation_context.clone();
+        async move {
+            tauri::async_runtime::spawn_blocking(move || {
+                verify_observation_context(&app, &backend, &context)
+            })
+            .await
+            .map_err(|_| "전송할 화면의 관찰 범위를 확인하지 못했습니다.".to_string())?
+        }
+    };
     tokio::select! {
-        result=backend.observe(request)=> {
-            let reply=result?;
+        result=backend.observe_with_validation(request, validate)=> {
+            let reply=match result {
+                Ok(reply) => reply,
+                Err(error) => {
+                    backend.invalidate_observation_ticket(&cancellation_ticket)?;
+                    return Err(error);
+                }
+            };
             let verify_backend=backend.clone();
             let verify_context=context.clone();
             let verified=tauri::async_runtime::spawn_blocking(move||verify_observation_context(&app,&verify_backend,&verify_context)).await.map_err(|_|"최종 관찰 대상을 확인하지 못했습니다.".to_string())?;
@@ -475,6 +529,14 @@ fn verify_native_context(
 ) -> Result<(), String> {
     let settings = backend.settings()?;
     let activity = platform::activity_snapshot();
+    let current_screen = match &context.target {
+        NativeObservationTarget::Screen(screen) => {
+            // Uses the raw OS window inventory, including title-less overlays.
+            platform::validate_screen(screen, &settings.observation.blocked_apps)?;
+            Some(platform::current_screen()?)
+        }
+        NativeObservationTarget::Window(_) => None,
+    };
     let facts = NativeObservationState {
         runtime: RuntimeContext {
             typing: activity.typing,
@@ -483,7 +545,12 @@ fn verify_native_context(
             observation_visible: observation_surface_visible(app),
         },
         screen_permission: platform::screen_permission(),
-        windows: platform::list_windows()?,
+        windows: if matches!(&context.target, NativeObservationTarget::Screen(_)) {
+            Vec::new()
+        } else {
+            platform::list_windows()?
+        },
+        current_screen,
     };
     // Pure validation: a stale watchdog must never mutate a newer request's runtime.
     context.validate_native(&settings, &facts)
@@ -617,7 +684,7 @@ fn start_platform_loop(handle: tauri::AppHandle) {
                 if let Ok(Some((id, _))) = state.backend.current_observation_context() {
                     let _ = validate_reply_native(&activity_handle, &state.backend, &id);
                 }
-                if visible && !locked && activity.typing == Some(false) {
+                if visible && !locked && activity.typing != Some(true) {
                     if let Ok(Some(event)) = tracker.poll(&settings.observation) {
                         if let Ok(Some(reply)) = state.backend.react_to_os_event(&event) {
                             if observation_surface_visible(&activity_handle)
@@ -633,7 +700,6 @@ fn start_platform_loop(handle: tauri::AppHandle) {
                     }
                 } else if !visible
                     || locked
-                    || activity.typing.is_none()
                     || settings.observation.mode != ObservationMode::AllowedApps
                     || !settings.observation.cloud_consent
                 {
@@ -892,6 +958,14 @@ mod ipc_boundary_tests {
             &identity,
             &None,
             std::slice::from_ref(&selected),
+            ObservationMode::SelectedWindow
+        )
+        .is_ok());
+        let next = window(2, 200, "example.browser", true);
+        assert!(validate_native_target(
+            &identity,
+            &None,
+            &[selected.clone(), next],
             ObservationMode::SelectedWindow
         )
         .is_ok());

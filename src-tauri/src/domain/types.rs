@@ -106,6 +106,13 @@ impl Settings {
         if self.observation.mode != ObservationMode::Off && !self.observation.cloud_consent {
             return Err("관찰을 시작하기 전에 선택한 화면의 제공자 전송에 동의해 주세요.".into());
         }
+        if self.observation.mode == ObservationMode::CurrentScreen
+            && !self.observation.screen_consent
+        {
+            return Err(
+                "모니터 전체에 보이는 내용을 제공자에 전달하는 데 별도로 동의해 주세요.".into(),
+            );
+        }
         self.providers.chat.validate()?;
         self.providers.stt.validate()?;
         self.providers.tts.validate()?;
@@ -140,6 +147,7 @@ pub enum ObservationMode {
     Off,
     SelectedWindow,
     AllowedApps,
+    CurrentScreen,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -150,6 +158,7 @@ pub struct ObservationSettings {
     pub allowed_apps: Vec<String>,
     pub blocked_apps: Vec<String>,
     pub cloud_consent: bool,
+    pub screen_consent: bool,
     pub interval_seconds: u64,
 }
 impl Default for ObservationSettings {
@@ -168,6 +177,7 @@ impl Default for ObservationSettings {
             .map(String::from)
             .into(),
             cloud_consent: false,
+            screen_consent: false,
             interval_seconds: 15,
         }
     }

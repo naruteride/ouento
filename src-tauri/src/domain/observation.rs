@@ -82,8 +82,13 @@ impl ObservationGate {
             || context.observation_visible != self.runtime.observation_visible;
         let suppress = context.screen_locked
             || !context.observation_visible
-            || (!explicit && (context.typing != Some(false) || context.meeting));
-        if safety_changed || (!explicit && context != self.runtime) {
+            || (!explicit && (context.typing == Some(true) || context.meeting));
+        let verified_activity_changed = (context.typing == Some(true)
+            && self.runtime.typing != Some(true))
+            || context.meeting != self.runtime.meeting;
+        // Unknown input remains unknown; gaining or losing idle-input evidence
+        // alone must not revoke an authorized frame or its current reply.
+        if safety_changed || (!explicit && verified_activity_changed) {
             self.invalidate();
         }
         self.runtime = context;
@@ -98,6 +103,24 @@ impl ObservationGate {
     pub fn allowed(settings: &Settings, target: &ObservationTarget) -> Result<(), String> {
         if target.app_id.is_empty() || target.window_id.is_empty() {
             return Err("관찰 대상 창을 확인할 수 없습니다.".into());
+        }
+        if settings.observation.mode == ObservationMode::CurrentScreen {
+            if !settings.observation.cloud_consent || !settings.observation.screen_consent {
+                return Err("모니터 전체 화면의 전송 동의가 필요합니다.".into());
+            }
+            let screen_id = target.window_id.strip_prefix("screen:");
+            return if target.app_id == "screen"
+                && screen_id.is_some_and(|id| {
+                    id.parse::<u32>()
+                        .is_ok_and(|parsed| parsed.to_string() == id)
+                }) {
+                Ok(())
+            } else {
+                Err("관찰할 모니터를 확인할 수 없습니다.".into())
+            };
+        }
+        if target.app_id == "screen" || target.window_id.starts_with("screen:") {
+            return Err("모니터 전체 화면은 별도로 허용해야 합니다.".into());
         }
         let app = target.app_id.to_lowercase();
         if app.contains("ouento")
@@ -140,9 +163,6 @@ impl ObservationGate {
     }
     pub fn can_react(&self, settings: &Settings, now: i64) -> Result<(), String> {
         self.can_observe()?;
-        if self.runtime.typing.is_none() {
-            return Err("입력 활동을 확인할 수 없어 자동 관찰을 쉬고 있습니다. 입력 감지 권한을 확인하거나 지금 화면 분석을 눌러 주세요. 직접 대화도 계속 사용할 수 있습니다.".into());
-        }
         if settings.quiet
             || settings.focus_mode
             || settings.meeting_mode
@@ -366,6 +386,82 @@ mod tests {
         assert!(ObservationGate::allowed(&Settings::default(), &t).is_err());
     }
     #[test]
+    fn full_screen_requires_both_consents_and_an_exact_screen_scope() {
+        let mut settings = Settings::default();
+        settings.observation.mode = ObservationMode::CurrentScreen;
+        let target = ObservationTarget {
+            app_id: "screen".into(),
+            window_id: "screen:9".into(),
+        };
+        let mut gate = ready_gate();
+        assert!(settings.validate().is_err());
+        assert!(gate.begin(&settings, target.clone(), "", 1000).is_err());
+        settings.observation.cloud_consent = true;
+        assert!(settings.validate().is_err());
+        assert!(gate.begin(&settings, target.clone(), "", 1000).is_err());
+        settings.observation.screen_consent = true;
+        assert!(settings.validate().is_ok());
+        let ticket = gate.begin(&settings, target.clone(), "", 1000).unwrap();
+        assert!(gate.validate(&settings, &ticket, 1001).is_ok());
+        for (app, id) in [
+            ("example.editor", "screen:9"),
+            ("screen", "9"),
+            ("screen", "screen:-1"),
+            ("screen", "screen:09"),
+        ] {
+            assert!(ObservationGate::allowed(
+                &settings,
+                &ObservationTarget {
+                    app_id: app.into(),
+                    window_id: id.into()
+                }
+            )
+            .is_err());
+        }
+        settings.observation.screen_consent = false;
+        assert!(gate.validate_current_scope(&settings, &ticket).is_err());
+        settings.observation.screen_consent = true;
+        settings.observation.cloud_consent = false;
+        assert!(gate.validate_current_scope(&settings, &ticket).is_err());
+        settings.observation.cloud_consent = true;
+        settings.observation.mode = ObservationMode::SelectedWindow;
+        settings.observation.selected_window_id = Some(target.window_id.clone());
+        assert!(ObservationGate::allowed(&settings, &target).is_err());
+    }
+    #[test]
+    fn full_screen_monitor_changes_do_not_reuse_seen_images_or_tickets() {
+        let mut settings = Settings::default();
+        settings.observation.mode = ObservationMode::CurrentScreen;
+        settings.observation.cloud_consent = true;
+        settings.observation.screen_consent = true;
+        let mut gate = ready_gate();
+        let first = ObservationTarget {
+            app_id: "screen".into(),
+            window_id: "screen:1".into(),
+        };
+        let second = ObservationTarget {
+            app_id: "screen".into(),
+            window_id: "screen:2".into(),
+        };
+        let ticket = gate
+            .begin(&settings, first.clone(), "same pixels", 1000)
+            .unwrap();
+        gate.mark_seen(&ticket, 1000);
+        assert!(gate.begin(&settings, first, "same pixels", 20_000).is_err());
+        let next = gate
+            .begin(&settings, second, "same pixels", 20_000)
+            .unwrap();
+        assert!(gate.validate(&settings, &ticket, 20_001).is_err());
+        assert!(gate.validate(&settings, &next, 20_001).is_ok());
+        gate.set_runtime(RuntimeContext {
+            typing: Some(false),
+            observation_visible: true,
+            screen_locked: true,
+            ..Default::default()
+        });
+        assert!(gate.validate(&settings, &next, 20_002).is_err());
+    }
+    #[test]
     fn duplicate_images_and_silence_share_one_policy() {
         let (mut s, target) = setup();
         let mut gate = ready_gate();
@@ -383,7 +479,7 @@ mod tests {
         assert!(gate.begin(&s, target, "different", 20_000).is_err());
     }
     #[test]
-    fn hidden_or_unknown_input_invalidates_observation_until_known_visible() {
+    fn hidden_observation_stays_invalid_after_reshow_even_without_input_detection() {
         let (settings, target) = setup();
         let mut gate = ready_gate();
         let ticket = gate.begin(&settings, target.clone(), "a", 1000).unwrap();
@@ -398,12 +494,45 @@ mod tests {
             observation_visible: true,
             ..RuntimeContext::default()
         });
-        assert!(gate.begin(&settings, target.clone(), "b", 20_000).is_err());
-        gate.set_runtime(RuntimeContext {
-            typing: Some(false),
+        assert!(gate.begin(&settings, target, "b", 20_000).is_ok());
+    }
+    #[test]
+    fn unknown_input_preserves_proactive_tickets_until_verified_input_starts() {
+        let (settings, target) = setup();
+        let mut gate = ready_gate();
+        assert!(!gate.set_runtime(RuntimeContext {
+            typing: None,
             observation_visible: true,
-            ..RuntimeContext::default()
-        });
+            ..Default::default()
+        }));
+        assert_eq!(gate.runtime.typing, None);
+        let ticket = gate.begin(&settings, target.clone(), "a", 1000).unwrap();
+        let epoch = gate.epoch;
+        for typing in [Some(false), None, None, Some(false), None] {
+            assert!(!gate.set_runtime(RuntimeContext {
+                typing,
+                observation_visible: true,
+                ..Default::default()
+            }));
+            assert_eq!(gate.runtime.typing, typing);
+            assert_eq!(gate.epoch, epoch);
+            assert!(gate.validate(&settings, &ticket, 2000).is_ok());
+        }
+        assert!(gate.set_runtime(RuntimeContext {
+            typing: Some(true),
+            observation_visible: true,
+            ..Default::default()
+        }));
+        assert!(gate.validate(&settings, &ticket, 2000).is_err());
+        assert!(gate.begin(&settings, target.clone(), "b", 20_000).is_err());
+        let input_epoch = gate.epoch;
+        assert!(!gate.set_runtime(RuntimeContext {
+            typing: None,
+            observation_visible: true,
+            ..Default::default()
+        }));
+        assert_eq!(gate.runtime.typing, None);
+        assert_eq!(gate.epoch, input_epoch);
         assert!(gate.begin(&settings, target, "b", 20_000).is_ok());
     }
     #[test]

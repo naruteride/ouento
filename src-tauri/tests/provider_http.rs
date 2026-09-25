@@ -1,7 +1,9 @@
 //! Transport integration tests. Every server binds only to loopback; every payload is synthetic.
 use ouento_lib::{
     domain::{
-        observation_context::{NativeObservationState, ObservationContext, WindowIdentity},
+        observation_context::{
+            NativeObservationState, NativeObservationTarget, ObservationContext, WindowIdentity,
+        },
         Backend, ChatRequest, Emotion, MemoryInput, ObservationMode, ObservationPurpose,
         ObservationRequest, ObservationTarget, ProviderConfig, RuntimeContext,
     },
@@ -13,7 +15,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{Shutdown, TcpListener, TcpStream},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc, Arc, Mutex,
     },
     thread::{self, JoinHandle},
@@ -540,9 +542,16 @@ async fn cancellation_during_audio_body_read_discards_partial_audio() {
 }
 
 #[tokio::test]
-async fn stop_hide_and_unknown_input_cancel_in_flight_observation_and_preserve_chat() {
+async fn stop_hide_lock_and_verified_input_cancel_window_and_screen_observation_and_preserve_chat()
+{
     use base64::Engine;
-    for interruption in ["stop", "hide", "unknown-input"] {
+    for (mode, interruption) in [
+        ObservationMode::SelectedWindow,
+        ObservationMode::CurrentScreen,
+    ]
+    .into_iter()
+    .flat_map(|mode| ["stop", "hide", "locked", "typing"].map(|interruption| (mode, interruption)))
+    {
         let (release, held) = mpsc::channel();
         let vision = json!({"reaction":reaction(),"scene":{"resultStatus":"none","resultOwner":"unknown","otherCharacter":false}});
         let mut server = LocalServer::scripted(vec![
@@ -556,13 +565,21 @@ async fn stop_hide_and_unknown_input_cancel_in_flight_observation_and_preserve_c
         let backend = Backend::open(directory.path()).unwrap();
         let mut settings = backend.settings().unwrap();
         settings.providers.chat = server.config();
-        settings.observation.mode = ObservationMode::SelectedWindow;
+        settings.observation.mode = mode;
         settings.observation.selected_window_id = Some("synthetic-window".into());
         settings.observation.cloud_consent = true;
+        settings.observation.screen_consent = mode == ObservationMode::CurrentScreen;
         backend.save_settings(settings).unwrap();
-        let target = ObservationTarget {
-            app_id: "synthetic.editor".into(),
-            window_id: "synthetic-window".into(),
+        let target = if mode == ObservationMode::CurrentScreen {
+            ObservationTarget {
+                app_id: "screen".into(),
+                window_id: "screen:1".into(),
+            }
+        } else {
+            ObservationTarget {
+                app_id: "synthetic.editor".into(),
+                window_id: "synthetic-window".into(),
+            }
         };
         backend
             .set_runtime_context(ouento_lib::domain::RuntimeContext {
@@ -571,7 +588,7 @@ async fn stop_hide_and_unknown_input_cancel_in_flight_observation_and_preserve_c
                 ..Default::default()
             })
             .unwrap();
-        let ticket = backend.begin_observation(target, "").unwrap();
+        let ticket = backend.begin_observation(target.clone(), "").unwrap();
         let mut png = std::io::Cursor::new(Vec::new());
         image::DynamicImage::new_rgba8(1, 1)
             .write_to(&mut png, image::ImageFormat::Png)
@@ -591,17 +608,28 @@ async fn stop_hide_and_unknown_input_cancel_in_flight_observation_and_preserve_c
         }
         match interruption {
             "stop" => {
-                backend.stop_observation().unwrap();
+                let stopped = backend.stop_observation().unwrap();
+                assert!(!stopped.observation.cloud_consent);
+                assert!(!stopped.observation.screen_consent);
             }
             "hide" => backend.set_observation_visible(false).unwrap(),
+            "locked" => backend
+                .set_runtime_context(RuntimeContext {
+                    typing: Some(false),
+                    observation_visible: true,
+                    screen_locked: true,
+                    ..Default::default()
+                })
+                .unwrap(),
             _ => backend
                 .set_runtime_context(ouento_lib::domain::RuntimeContext {
-                    typing: None,
+                    typing: Some(true),
                     observation_visible: true,
                     ..Default::default()
                 })
                 .unwrap(),
         }
+        assert!(backend.begin_observation(target, "").is_err());
         assert!(tokio::time::timeout(Duration::from_secs(1), pending)
             .await
             .unwrap()
@@ -626,28 +654,105 @@ async fn stop_hide_and_unknown_input_cancel_in_flight_observation_and_preserve_c
             if interruption == "stop" {
                 ObservationMode::Off
             } else {
-                ObservationMode::SelectedWindow
+                mode
             }
         );
     }
 }
 
-fn explicit_observation(backend: &Backend) -> ObservationRequest {
+#[tokio::test]
+async fn automatic_observation_and_reply_continue_when_input_detection_is_unavailable() {
     use base64::Engine;
-    let ticket = backend
-        .begin_observation_for(
+    for mode in [
+        ObservationMode::SelectedWindow,
+        ObservationMode::CurrentScreen,
+    ] {
+        let (release, held) = mpsc::channel();
+        let vision = json!({"reaction":reaction(),"scene":{"resultStatus":"none","resultOwner":"unknown","otherCharacter":false}});
+        let mut server = LocalServer::new(Box::new(move |stream| {
+            held.recv_timeout(Duration::from_secs(3)).unwrap();
+            fixed(200, "application/json", completion(vision))(stream);
+        }));
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Backend::open(directory.path()).unwrap();
+        let mut settings = backend.settings().unwrap();
+        settings.providers.chat = server.config();
+        settings.observation.mode = mode;
+        settings.observation.selected_window_id = Some("synthetic-window".into());
+        settings.observation.cloud_consent = true;
+        settings.observation.screen_consent = mode == ObservationMode::CurrentScreen;
+        backend.save_settings(settings).unwrap();
+        let mut runtime = RuntimeContext {
+            typing: None,
+            observation_visible: true,
+            ..Default::default()
+        };
+        backend.set_runtime_context(runtime.clone()).unwrap();
+        let target = if mode == ObservationMode::CurrentScreen {
+            ObservationTarget {
+                app_id: "screen".into(),
+                window_id: "screen:1".into(),
+            }
+        } else {
             ObservationTarget {
                 app_id: "synthetic.editor".into(),
-                window_id: backend
-                    .settings()
-                    .unwrap()
-                    .observation
-                    .selected_window_id
-                    .unwrap(),
-            },
-            "",
-            ObservationPurpose::OnDemand,
-        )
+                window_id: "synthetic-window".into(),
+            }
+        };
+        let ticket = backend.begin_observation(target, "").unwrap();
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(1, 1)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut pending = Box::pin(backend.observe(ObservationRequest {
+            ticket: ticket.clone(),
+            image_base64: base64::engine::general_purpose::STANDARD.encode(png.into_inner()),
+            mime_type: "image/png".into(),
+        }));
+        tokio::select! {
+            request = server.request() => assert_eq!(request.path, "/v1/chat/completions"),
+            early = &mut pending => panic!("unknown input must not block the synthetic provider: {early:?}"),
+        }
+        for typing in [Some(false), None] {
+            runtime.typing = typing;
+            backend.set_runtime_context(runtime.clone()).unwrap();
+            assert!(backend.validate_observation(&ticket).is_ok());
+        }
+        release.send(()).unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(1), pending)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(reply.reaction.text, reaction()["text"]);
+        for typing in [None, Some(false), None] {
+            runtime.typing = typing;
+            backend.set_runtime_context(runtime.clone()).unwrap();
+            assert!(backend.current_utterance(&reply.utterance_id));
+            assert!(backend.validate_observation_response_scope(&ticket).is_ok());
+        }
+        runtime.typing = Some(true);
+        backend.set_runtime_context(runtime).unwrap();
+        assert!(!backend.current_utterance(&reply.utterance_id));
+    }
+}
+
+fn explicit_observation(backend: &Backend) -> ObservationRequest {
+    use base64::Engine;
+    let settings = backend.settings().unwrap();
+    let target = if settings.observation.mode == ObservationMode::CurrentScreen {
+        ObservationTarget {
+            app_id: "screen".into(),
+            window_id: "screen:1".into(),
+        }
+    } else {
+        ObservationTarget {
+            app_id: "synthetic.editor".into(),
+            window_id: settings.observation.selected_window_id.unwrap(),
+        }
+    };
+    let ticket = backend
+        .begin_observation_for(target, "", ObservationPurpose::OnDemand)
         .unwrap();
     let mut png = std::io::Cursor::new(Vec::new());
     image::DynamicImage::new_rgba8(1, 1)
@@ -657,6 +762,74 @@ fn explicit_observation(backend: &Backend) -> ObservationRequest {
         ticket,
         image_base64: base64::engine::general_purpose::STANDARD.encode(png.into_inner()),
         mime_type: "image/png".into(),
+    }
+}
+
+#[tokio::test]
+async fn native_screen_validation_runs_before_http_and_before_history_commit() {
+    for denied_check in [1, 2] {
+        let mut responses = Vec::<Reply>::new();
+        if denied_check == 2 {
+            let vision = json!({"reaction":reaction(),"scene":{"resultStatus":"none","resultOwner":"unknown","otherCharacter":false}});
+            responses.push(fixed(200, "application/json", completion(vision)));
+        }
+        responses.push(fixed(200, "application/json", completion(reaction())));
+        let mut server = LocalServer::scripted(responses);
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Backend::open(directory.path()).unwrap();
+        let mut settings = backend.settings().unwrap();
+        settings.providers.chat = server.config();
+        settings.observation.mode = ObservationMode::CurrentScreen;
+        settings.observation.cloud_consent = true;
+        settings.observation.screen_consent = true;
+        backend.save_settings(settings).unwrap();
+        backend
+            .set_runtime_context(RuntimeContext {
+                observation_visible: true,
+                ..Default::default()
+            })
+            .unwrap();
+        let checks = AtomicUsize::new(0);
+        let result = backend
+            .observe_with_validation(explicit_observation(&backend), || {
+                let check = checks.fetch_add(1, Ordering::SeqCst) + 1;
+                std::future::ready(if check == denied_check {
+                    Err("합성 모니터가 변경되었습니다.".into())
+                } else {
+                    Ok(())
+                })
+            })
+            .await;
+        assert_eq!(
+            result.err().as_deref(),
+            Some("합성 모니터가 변경되었습니다.")
+        );
+        assert_eq!(checks.load(Ordering::SeqCst), denied_check);
+        if denied_check == 1 {
+            assert!(
+                server.accepted.try_recv().is_err(),
+                "rejected screen must not open HTTP"
+            );
+        } else {
+            let request = server.request().await;
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            assert!(body["messages"][1]["content"].is_array());
+        }
+        backend
+            .chat(ChatRequest {
+                text: "새로운 합성 직접 대화".into(),
+            })
+            .await
+            .unwrap();
+        let request = server.request().await;
+        let body: Value = serde_json::from_slice(&request.body).unwrap();
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(
+            messages.len(),
+            2,
+            "rejected screen must not enter conversation history"
+        );
+        assert_eq!(messages[1]["content"], "새로운 합성 직접 대화");
     }
 }
 
@@ -937,6 +1110,7 @@ fn synthetic_native_state() -> NativeObservationState {
             ..Default::default()
         },
         screen_permission: "granted".into(),
+        current_screen: None,
         windows: vec![ouento_lib::platform::WindowInfo {
             id: 1,
             pid: 100,
@@ -955,14 +1129,27 @@ fn synthetic_native_state() -> NativeObservationState {
 
 #[tokio::test]
 async fn observation_audio_rechecks_native_target_and_permission_after_delayed_tts() {
-    for interruption in [
-        "closed",
-        "reused-pid",
-        "focus",
-        "permission",
-        "cancel",
-        "direct",
-    ] {
+    for (mode, interruption) in [
+        ObservationMode::SelectedWindow,
+        ObservationMode::AllowedApps,
+        ObservationMode::CurrentScreen,
+    ]
+    .into_iter()
+    .flat_map(|mode| {
+        [
+            "closed",
+            "reused-pid",
+            "focus",
+            "permission",
+            "cancel",
+            "direct",
+        ]
+        .map(|interruption| (mode, interruption))
+    })
+    .chain([
+        (ObservationMode::CurrentScreen, "monitor"),
+        (ObservationMode::CurrentScreen, "geometry"),
+    ]) {
         let (release, held) = mpsc::channel();
         let vision = json!({"reaction":reaction(),"scene":{"resultStatus":"none","resultOwner":"unknown","otherCharacter":false}});
         let mut server = LocalServer::scripted(vec![
@@ -980,11 +1167,23 @@ async fn observation_audio_rechecks_native_target_and_permission_after_delayed_t
         settings.providers.tts = server.config();
         settings.voice_enabled = true;
         settings.muted = false;
-        settings.observation.mode = ObservationMode::SelectedWindow;
+        settings.observation.mode = mode;
         settings.observation.selected_window_id = Some("1".into());
+        settings.observation.allowed_apps = vec!["synthetic.editor".into()];
         settings.observation.cloud_consent = true;
+        settings.observation.screen_consent = mode == ObservationMode::CurrentScreen;
         backend.save_settings(settings).unwrap();
-        let facts = Mutex::new(synthetic_native_state());
+        let mut native = synthetic_native_state();
+        if mode == ObservationMode::CurrentScreen {
+            native.current_screen = Some(ouento_lib::platform::ScreenInfo {
+                id: 1,
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            });
+        }
+        let facts = Mutex::new(native);
         backend
             .set_runtime_context(facts.lock().unwrap().runtime.clone())
             .unwrap();
@@ -992,9 +1191,15 @@ async fn observation_audio_rechecks_native_target_and_permission_after_delayed_t
         let target = WindowIdentity::from(&facts.lock().unwrap().windows[0]);
         let context = ObservationContext {
             ticket: request.ticket.clone(),
-            target: target.clone(),
+            target: if mode == ObservationMode::CurrentScreen {
+                NativeObservationTarget::Screen(
+                    facts.lock().unwrap().current_screen.clone().unwrap(),
+                )
+            } else {
+                NativeObservationTarget::Window(target.clone())
+            },
             focus: Some(target),
-            mode: ObservationMode::SelectedWindow,
+            mode,
         };
         let reply = backend.observe(request).await.unwrap().unwrap();
         server.request().await;
@@ -1029,12 +1234,17 @@ async fn observation_audio_rechecks_native_target_and_permission_after_delayed_t
                 "focus" => state.windows[0].focused = false,
                 "permission" => state.screen_permission = "denied".into(),
                 "cancel" => backend.cancel(),
+                "monitor" => state.current_screen.as_mut().unwrap().id = 2,
+                "geometry" => state.current_screen.as_mut().unwrap().width = 1280,
                 _ => {}
             }
         }
-        // Closed/permission cases exercise the watchdog while HTTP is held;
-        // the other cases release audio first and exercise final validation.
-        let stopped_before_audio = matches!(interruption, "closed" | "permission");
+        let continues = (mode == ObservationMode::CurrentScreen
+            && matches!(interruption, "closed" | "reused-pid" | "focus"))
+            || (mode == ObservationMode::SelectedWindow && interruption == "focus");
+        // A selected window survives focus moving away; an allowed-app scope
+        // follows focus. A whole monitor survives ordinary window changes.
+        let stopped_before_audio = !continues && matches!(interruption, "closed" | "permission");
         if stopped_before_audio {
             assert!(
                 tokio::time::timeout(Duration::from_secs(1), &mut pending)
@@ -1058,16 +1268,16 @@ async fn observation_audio_rechecks_native_target_and_permission_after_delayed_t
             None
         };
         if !stopped_before_audio {
-            assert!(
-                tokio::time::timeout(Duration::from_secs(1), &mut pending)
-                    .await
-                    .unwrap()
-                    .is_err(),
-                "{interruption}"
-            );
+            let audio = tokio::time::timeout(Duration::from_secs(1), &mut pending)
+                .await
+                .unwrap();
+            assert_eq!(audio.is_ok(), continues, "{mode:?}: {interruption}");
+            if let Ok(audio) = audio {
+                assert_eq!(audio.utterance_id, reply.utterance_id);
+            }
         }
         drop(pending);
-        assert!(!backend.current_utterance(&reply.utterance_id));
+        assert_eq!(backend.current_utterance(&reply.utterance_id), continues);
         let direct = match direct_before_stale {
             Some(reply) => reply,
             None => backend

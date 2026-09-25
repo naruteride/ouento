@@ -26,7 +26,7 @@
   "observation": {
     "mode": "off", "selectedWindowId": null, "allowedApps": [],
     "blockedApps": ["com.1password.1password", "com.apple.keychainaccess", "1password.exe", "keepass.exe", "keepassxc.exe"],
-    "cloudConsent": false, "intervalSeconds": 15
+    "cloudConsent": false, "screenConsent": false, "intervalSeconds": 15
   },
   "providers": {
     "chat": {"baseUrl": "https://api.openai.com/v1", "model": "", "requiresKey": true},
@@ -37,7 +37,7 @@
 }
 ```
 
-성격 ID는 `tsundere`, `cat`, `cheerleader`. 관찰 모드는 `off`, `selectedWindow`, `allowedApps`. 모델 이름은 제공자의 실제 사용 가능한 모델을 사용자가 지정한다. 기본값이 비어 있으면 네트워크 호출 대신 설정 안내를 반환한다. HTTP는 localhost 루프백 제공자만 허용한다. 재시작 시 관찰은 반드시 off로 되돌아가며 선택 창 식별자와 클라우드 동의는 지운다.
+성격 ID는 `tsundere`, `cat`, `cheerleader`. 관찰 모드는 `off`, `selectedWindow`, `allowedApps`, `currentScreen`. `currentScreen`은 마우스가 있는 모니터 전체이며 `cloudConsent`와 `screenConsent`가 모두 필요하다. 모델 이름은 제공자의 실제 사용 가능한 모델을 사용자가 지정한다. 기본값이 비어 있으면 네트워크 호출 대신 설정 안내를 반환한다. HTTP는 localhost 루프백 제공자만 허용한다. 재시작 시 유효한 `currentScreen`·`allowedApps` 설정과 동의를 보존하고 OS 권한은 별도로 다시 확인한다. `selectedWindow`만 창 ID 재사용을 막기 위해 off로 돌리고 다시 선택하도록 한다. 명시적 관찰 중지는 off와 두 동의 해제를 저장한다.
 
 ## 함수
 
@@ -51,7 +51,7 @@
 - `memories() -> Vec<Memory>`, `save_memory(MemoryInput { id: Option<String>, text, expiresAt: Option<i64>, confirmed: bool }) -> Memory`, `delete_memory(&str)`, `clear_memories()`
 - `reset_character(keep_identity: bool)`: 취소 후 `false`면 기억 삭제·성격 초기화. 모델 매핑은 이 모듈과 별개다.
 - `set_api_key(ProviderKind, &str)` / `delete_api_key(ProviderKind)` / `credential_status() -> CredentialStatus`: kind는 `chat`, `stt`, `tts`. OS keyring 저장. 상태에는 존재 여부만 노출.
-- `set_runtime_context(RuntimeContext { typing: bool|null, meeting, screenLocked, observationVisible })`: 입력 활동을 모르면 `null`을 유지한다. 입력 중·미확인·회의에서는 자동 관찰만 무효화한다. 잠금·전체 창 숨김에서는 수동/자동 관찰 작업과 관찰 발화를 모두 무효화하며 직접 대화는 유지한다.
+- `set_runtime_context(RuntimeContext { typing: bool|null, meeting, screenLocked, observationVisible })`: 입력 활동을 모르면 `null`을 유지한다. 실제 입력 중 또는 회의에서는 자동 관찰만 무효화한다. null은 입력 감지 미지원이며 자동 관찰을 막거나 진행 중인 반응을 취소하지 않는다. 잠금·전체 창 숨김에서는 수동/자동 관찰 작업과 관찰 발화를 모두 무효화하며 직접 대화는 유지한다.
 - `set_observation_visible(bool)`: 네이티브 창 표시 상태가 바뀔 때 관찰만 즉시 취소한다. 다시 보일 때 과거 티켓이 되살아나지 않는다.
 - `begin_observation(ObservationTarget { appId, windowId }, fingerprint: &str) -> ObservationTicket`: **캡처 전에** 호출한다. 불허·중복·집중·빈도 제한이면 오류.
 - `begin_observation_for(target, fingerprint, ObservationPurpose::OnDemand)`: 사용자가 명시적으로 요청한 화면 분석 티켓을 발급한다. 기본 `begin_observation`은 `Proactive`이며 OS 사건도 이 기본 정책만 사용한다.
@@ -61,14 +61,14 @@
 - `validate_observation_response_scope(&ObservationTicket)`: 이미 발급한 답변의 범위·세대·표시·잠금을 계속 검사한다. 분석 기한을 정상 재생 길이 제한으로 재사용하지 않는다.
 - `invalidate_observation()`: 현재 관찰 작업만 무효화하며 허용 설정과 직접 대화는 유지한다.
 - `invalidate_observation_ticket(&ticket)`: 그 티켓이 아직 현재 요청인 경우에만 취소한다. 이전 요청의 watchdog이 새 수동 요청까지 취소하지 않게 한다.
-- `observe(ObservationRequest { ticket, imageBase64, mimeType }) -> Option<ConversationReply>` (async): 전송 직전·결과 직후 권한/세대 검사. 이미지 해석은 선택 창의 캡처만 넣는다.
+- `observe(ObservationRequest { ticket, imageBase64, mimeType }) -> Option<ConversationReply>` (async): 도메인 권한/세대 검사. 실제 IPC는 `observe_with_validation(request, validate)`를 사용하며, 키 조회 후 전송 직전과 결과 직후 기록 반영 전에 네이티브 대상도 재검증한다. 이미지에는 명시적으로 허용한 창 또는 현재 모니터의 캡처만 넣는다.
 - `stop_observation() -> Settings`: 수집·전송·대기 반응 취소, mode off. 직접 대화 기능 유지.
 
 모든 함수는 별도 표기가 없는 반환값을 `Result<..., String>`으로 감싼다. `cancel`만 `()`이다. 관찰 티켓은 Rust 네이티브 캡처 명령 안에서 생성하고 사용한다. WebView가 임의 앱 ID와 이미지를 조합해서 넘기는 캡처 인터페이스를 노출하지 않는다.
 
 `begin_observation(target, "")`으로 캡처 전 티켓을 생성할 수 있다. 티켓의 `purpose`는 `proactive` 또는 `onDemand`이며 게이트가 기억한 실제 발급 목적과 일치해야 한다. 호출자가 기존 자동 티켓의 목적만 바꿔 제한을 우회할 수 없다. `observe`는 캡처 이미지 해시로 자동 요청의 중복을 검사한다. 시간 간격은 캡처 전, 화면 동일 여부는 캡처 후 검사한다. 해시는 중복 억제 용도이며 권한 증명이 아니다. `validate_observation` 자체는 OS 창 상태를 알 수 없으므로 네이티브 계층에서 캡처 전후의 실제 창 ID·PID·앱 ID를 확인한다.
 
-Tauri `save_settings`는 선택 창을 최초 허용할 때 창 ID·PID·앱 ID를 메모리에 고정한다. 다른 설정 저장은 이 승인을 새로운 창으로 교체하지 않는다. `analyze_window({manual?:bool})`는 250ms 창 안정화 이후 해당 승인과 대조해 캡처한다. manual 생략은 false이며 명시적 버튼 요청만 true로 전달한다. 추론 중에는 350ms 간격으로 권한·잠금·표시 상태·활성 창·허용 범위를 확인한다. 자동 요청에는 입력·집중·회의·조용히 정책도 적용한다. 전달 직전에도 OS 사실과 발화 세대를 재검사한다. 이 폴링 간격은 초기 정책이며 실측 지연 보장이 아니다.
+Tauri `save_settings`는 선택 창을 최초 허용할 때 창 ID·PID·앱 ID를 메모리에 고정한다. 다른 설정 저장은 이 승인을 새로운 창으로 교체하지 않는다. `analyze_window({manual?:bool})`는 250ms 창 안정화 이후 해당 승인과 대조해 캡처한다. manual 생략은 false이며 명시적 버튼 요청만 true로 전달한다. 추론 중에는 350ms 간격으로 권한·잠금·표시 상태·허용 범위를 확인한다. 활성 창 일치는 허용 앱의 활성 대상을 따라가는 모드에서만 요구한다. 선택 창과 모니터 전체 모드는 다른 앱에 포커스가 옮겨도 유지한다. 자동 요청에는 입력·집중·회의·조용히 정책도 적용한다. 전달 직전에도 OS 사실과 발화 세대를 재검사한다. 이 폴링 간격은 초기 정책이며 실측 지연 보장이 아니다.
 
 `speech-cancelled` 이벤트 payload는 `{origin: string}`이며 직접 취소 명령의 origin은 Tauri가 주입한 호출 창 label이다. 모델 교체는 `origin: "model"`. 프런트엔드는 자신의 요청 시작을 위해 보낸 취소 이벤트와 다른 창에서 받은 취소를 구분한다. `observation-stopped`는 관찰 발화만 취소한다. keyring 상태 확인 실패는 snapshot의 `credentialError`로 표시하며 캐릭터/설정 로딩을 차단하지 않는다.
 
@@ -90,7 +90,7 @@ Tauri `save_settings`는 선택 창을 최초 허용할 때 창 ID·PID·앱 ID�
 
 `observation-visibility: {visible}`는 main 또는 companion 중 하나라도 표시되고 최소화되지 않았는지를 알린다. 두 창 모두 숨김이면 진행 중인 관찰 티켓·HTTP 요청·관찰 재생을 취소한다. 직접 대화의 취소와 구분한다.
 
-입력 미확인·입력 중·조용히·집중·회의·발화 빈도 0은 선제 반응을 억제한다. 사용자가 누른 ‘지금 화면 한 번 보기’는 `onDemand`로 처리하여 이 억제와 자동 분석 간격·동일 화면 중복 제한을 건너뛴다. 따라서 같은 화면을 다시 요청할 수도 있다. 수동 요청도 화면 잠금·전체 숨김·동의 해제·범위/대상 변경·민감 앱·권한 거부·오래된 화면·관찰 중지에서는 취소된다. 설정 변경과 새 직접 대화의 기존 취소 정책도 유지한다.
+실제 입력 중·조용히·집중·회의·발화 빈도 0은 선제 반응을 억제한다. 사용자가 누른 ‘지금 화면 한 번 보기’는 `onDemand`로 처리하여 이 억제와 자동 분석 간격·동일 화면 중복 제한을 건너뛴다. 따라서 같은 화면을 다시 요청할 수도 있다. 수동 요청도 화면 잠금·전체 숨김·동의 해제·범위/대상 변경·민감 앱·권한 거부·오래된 화면·관찰 중지에서는 취소된다. 설정 변경과 새 직접 대화의 기존 취소 정책도 유지한다.
 
 수동 분석을 준비하는 동안과 HTTP 분석 중에는 `on_demand_observation_guard()`가 자동 화면/OS 반응을 막는다. 결과 뒤에는 공통 반응 간격이 적용되고 TTS HTTP 처리에는 기존 직접 요청 guard가 적용된다. 수동 화면 답변은 자동 질투 연출 때문에 침묵으로 바꾸지 않는다. 프런트엔드의 `origin:"manualObservation"`은 수동 IPC 요청을 보낸 흐름에만 붙이는 재생 구분값이며 권한 근거는 Rust가 발급한 티켓이다. 관찰 중지·잠금·전체 숨김·설정 변경에서는 이 origin도 취소하고, 입력 휴식에서는 자동 `observation` origin만 취소한다.
 

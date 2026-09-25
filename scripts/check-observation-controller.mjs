@@ -129,7 +129,7 @@ function harness() {
   };
 }
 
-// Quiet, unknown activity and focus/meeting suppress automatic work only.
+// Quiet and focus/meeting suppress automatic work even when activity detection is unavailable.
 let h = harness();
 h.run(
   'typingState=null;snapshot.settings.quiet=true;snapshot.settings.focusMode=true;snapshot.settings.meetingMode=true;',
@@ -174,23 +174,81 @@ h = harness();
 manual = h.run('analyze(true)');
 await tick();
 const manualEpoch = h.run('generation');
-h.run('typingState=true;pauseAutomaticObservation();');
+h.run('handleActivity({typing:true,locked:false});');
 assert.equal(h.run('generation'), manualEpoch);
 assert.equal(h.run('directBusy'), true);
 h.requests[0].resolve(reply('manual-typing'));
 await manual;
-h.run('typingState=null;pauseAutomaticObservation();');
+h.run('handleActivity({typing:null,locked:false});');
 assert.equal(h.run('activeOrigin'), 'manualObservation');
 assert.equal(h.run('generation'), manualEpoch);
 
 // The same automatic pause invalidates proactive work and its late response.
 h = harness();
 automatic = h.run('analyze(false)');
-h.run('typingState=true;pauseAutomaticObservation();');
+h.run('handleActivity({typing:true,locked:false});');
+h.run('handleActivity({typing:null,locked:false});');
 h.requests[0].resolve(reply('typing-automatic'));
 await automatic;
 assert.equal(h.forwarded.length, 0);
 assert.equal(h.run('analyzing'), false);
+
+// Missing detection allows starting, pending, and already-presented automatic work.
+h = harness();
+h.run('handleActivity({typing:null,locked:false})');
+assert.equal(h.run('observationBlocked()'), false);
+assert.match(h.data.observation.status, /함께 보는 중.*입력 감지 미지원/);
+assert.doesNotMatch(h.data.observation.status, /쉬는 중/);
+automatic = h.run('analyze(false)');
+assert.equal(h.requests.length, 1);
+const unknownActivityEpoch = h.run('generation');
+h.run('handleActivity({locked:false})');
+assert.equal(h.run('generation'), unknownActivityEpoch);
+h.requests[0].resolve(reply('unknown-automatic'));
+await automatic;
+assert.equal(h.forwarded[0].payload.origin, 'observation');
+h.run('handleActivity({typing:null,locked:false})');
+assert.equal(h.run('generation'), unknownActivityEpoch);
+assert.equal(h.run('activeOrigin'), 'observation');
+
+// A real typing signal blocks a new request; returning to unavailable detection resumes it.
+h = harness();
+h.run('handleActivity({typing:true,locked:false})');
+await h.run('analyze(false)');
+assert.equal(h.requests.length, 0);
+assert.match(h.data.observation.status, /입력 중.*쉬는 중/);
+h.run('handleActivity({typing:null,locked:false})');
+automatic = h.run('analyze(false)');
+assert.equal(h.requests.length, 1);
+h.requests[0].resolve(reply('unknown-resumed'));
+await automatic;
+assert.equal(h.forwarded[0].payload.utteranceId, 'unknown-resumed');
+
+// Unavailable detection never overrides explicit quiet/privacy/visibility controls.
+for (const blocked of [
+  'snapshot.settings.quiet=true',
+  'snapshot.settings.focusMode=true',
+  'snapshot.settings.meetingMode=true',
+  'locked=true',
+  'observationVisible=false',
+  'desktopShown=false;document.hidden=true',
+  "snapshot.settings.observation.mode='off'",
+]) {
+  h = harness();
+  h.run(`typingState=null;${blocked};showObservationState()`);
+  await h.run('analyze(false)');
+  assert.equal(h.requests.length, 0, blocked);
+}
+
+// A lock signal still cancels a pending automatic reply when typing is unavailable.
+h = harness();
+h.run('handleActivity({typing:null,locked:false})');
+automatic = h.run('analyze(false)');
+h.run('handleActivity({typing:null,locked:true})');
+assert.match(h.data.observation.status, /화면 잠금.*쉬는 중/);
+h.requests[0].resolve(reply('locked-unknown'));
+await automatic;
+assert.equal(h.forwarded.length, 0);
 
 // Observation stop cancels manual work immediately; direct conversation remains usable.
 h = harness();
@@ -380,5 +438,5 @@ h.run("invalidateObservation({utteranceId:'current-direct'})");
 assert.equal(h.run('generation'), newDirectEpoch);
 assert.equal(h.run('activeOrigin'), 'direct');
 console.log(
-  'observation controller: 16 manual/proactive priority, privacy, native-denial, scoped invalidation, and late-response scenarios passed',
+  'observation controller: 20 manual/proactive priority, unknown activity, privacy, native-denial, scoped invalidation, and late-response scenarios passed',
 );

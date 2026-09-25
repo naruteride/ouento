@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { createRequire } from 'node:module';
+import { signLocalBuild } from './macos-signing.mjs';
 
 // Desktop-launched terminals do not always inherit rustup's shell PATH setup.
 const require = createRequire(import.meta.url);
@@ -21,6 +22,14 @@ child.on('error', (error) => {
   console.error(error.message);
   process.exitCode = 1;
 });
-child.on('exit', (code) => {
+child.on('close', async (code) => {
   process.exitCode = code ?? 1;
+  if (code === 0) {
+    try {
+      await signLocalBuild(process.argv.slice(2), { env });
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+    }
+  }
 });

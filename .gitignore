@@ -9,6 +9,7 @@ public/vendor/
 public/models/
 vendor/
 .cache/
+.local/
 test-results/
 playwright-report/
 *.log

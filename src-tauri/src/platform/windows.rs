@@ -1,6 +1,9 @@
 //! Win32 API boundary. Input-idle timestamps contain no keys or text; secure desktops suppress observation.
 use super::{timestamp, ActivitySnapshot, CursorSample};
 use std::ffi::c_void;
+#[path = "windows_screen.rs"]
+mod screen_capture;
+pub(super) use screen_capture::{capture_screen_pixels, screen_windows};
 type Handle = *mut c_void;
 #[repr(C)]
 struct Point {

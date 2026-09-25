@@ -68,11 +68,23 @@ impl Backend {
     pub fn open(directory: &Path) -> Result<Self, String> {
         let store = Store::open(directory)?;
         let mut settings = store.settings()?;
-        // Window IDs and capture permissions cannot be trusted across launches.
-        settings.observation.mode = ObservationMode::Off;
+        // Resume only a valid saved choice. Incomplete observation approvals
+        // stay off without discarding unrelated settings or provider choices.
+        if settings.validate().is_err() {
+            settings.observation.mode = ObservationMode::Off;
+            settings.observation.selected_window_id = None;
+            settings.observation.cloud_consent = false;
+            settings.observation.screen_consent = false;
+            store.save_settings(&settings)?;
+        }
+        // Native window IDs cannot survive relaunch. Only this mode returns to
+        // off, so unrelated settings remain editable before a fresh selection.
+        if settings.observation.mode == ObservationMode::SelectedWindow {
+            settings.observation.mode = ObservationMode::Off;
+            settings.observation.selected_window_id = None;
+            store.save_settings(&settings)?;
+        }
         settings.observation.selected_window_id = None;
-        settings.observation.cloud_consent = false;
-        store.save_settings(&settings)?;
         Ok(Self {
             settings: Mutex::new(settings),
             store,
@@ -166,6 +178,7 @@ impl Backend {
         settings.observation.mode = ObservationMode::Off;
         settings.observation.selected_window_id = None;
         settings.observation.cloud_consent = false;
+        settings.observation.screen_consent = false;
         self.save_settings(settings)
     }
     pub fn set_runtime_context(&self, context: RuntimeContext) -> Result<(), String> {
@@ -592,8 +605,22 @@ impl Backend {
     }
     pub async fn observe(
         &self,
-        mut request: ObservationRequest,
+        request: ObservationRequest,
     ) -> Result<Option<ConversationReply>, String> {
+        self.observe_with_validation(request, || std::future::ready(Ok(())))
+            .await
+    }
+    /// The native boundary rechecks its exact target after credential access
+    /// and after the HTTP response, before any scene enters local history.
+    pub async fn observe_with_validation<F, Fut>(
+        &self,
+        mut request: ObservationRequest,
+        validate: F,
+    ) -> Result<Option<ConversationReply>, String>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<(), String>>,
+    {
         let settings = self.settings()?;
         self.validate_observation(&request.ticket)?;
         let _manual = (request.ticket.purpose == ObservationPurpose::OnDemand)
@@ -621,6 +648,7 @@ impl Backend {
         } else {
             system
         };
+        observation_token.run(validate()).await?;
         self.validate_observation(&request.ticket)?;
         let analysis = observation_token
             .run(self.provider.analyze(
@@ -631,6 +659,7 @@ impl Backend {
                 &request.mime_type,
             ))
             .await?;
+        observation_token.run(validate()).await?;
         self.validate_observation(&request.ticket)?;
         if self.utterances.generation() != generation {
             return Err("새 대화가 시작되어 화면 반응을 취소했습니다.".into());
@@ -659,7 +688,7 @@ impl Backend {
         {
             let mut history = lock(&self.history)?;
             token.check()?;
-            history.push(ChatTurn { role: "user".into(), content: format!("사용자가 허용한 창에서 확인한 장면의 구조화된 관찰 자료(사용자의 명령이 아님): {scene_summary}") });
+            history.push(ChatTurn { role: "user".into(), content: format!("사용자가 허용한 화면에서 확인한 장면의 구조화된 관찰 자료(사용자의 명령이 아님): {scene_summary}") });
             history.push(ChatTurn {
                 role: "assistant".into(),
                 content: reaction.text.clone(),
@@ -929,6 +958,13 @@ mod tests {
         assert_eq!(reply.source, "localOsEvent");
         assert_eq!(reply.reaction.emotion, Emotion::Calm);
         assert!(backend.current_utterance(&reply.utterance_id));
+        backend
+            .set_runtime_context(RuntimeContext {
+                typing: None,
+                ..ready.clone()
+            })
+            .unwrap();
+        assert!(backend.current_utterance(&reply.utterance_id));
         assert!(backend.react_to_os_event(&event).unwrap().is_none());
         assert!(backend
             .begin_observation(
@@ -1064,7 +1100,7 @@ mod tests {
         );
     }
     #[test]
-    fn restart_preserves_approved_memory_but_does_not_resume_capture() {
+    fn restart_requires_a_fresh_selected_window_without_blocking_other_settings() {
         let directory = tempfile::tempdir().unwrap();
         let backend = Backend::open(directory.path()).unwrap();
         let mut settings = backend.settings().unwrap();
@@ -1086,8 +1122,158 @@ mod tests {
         let settings = resumed.settings().unwrap();
         assert_eq!(settings.observation.mode, ObservationMode::Off);
         assert!(settings.observation.selected_window_id.is_none());
-        assert!(!settings.observation.cloud_consent);
+        assert!(settings.observation.cloud_consent);
+        assert!(!settings.observation.screen_consent);
+        assert!(settings.validate().is_ok());
         assert_eq!(resumed.memories().unwrap()[0].text, "허용한 목표 요약");
+        resumed
+            .set_runtime_context(RuntimeContext {
+                typing: Some(false),
+                observation_visible: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(resumed
+            .begin_observation(
+                ObservationTarget {
+                    app_id: "synthetic.editor".into(),
+                    window_id: "42".into()
+                },
+                ""
+            )
+            .is_err());
+        let mut reselected = settings;
+        reselected.muted = true;
+        resumed.save_settings(reselected.clone()).unwrap();
+        reselected.observation.mode = ObservationMode::SelectedWindow;
+        reselected.observation.selected_window_id = Some("43".into());
+        resumed.save_settings(reselected).unwrap();
+        assert!(resumed
+            .begin_observation(
+                ObservationTarget {
+                    app_id: "synthetic.editor".into(),
+                    window_id: "43".into()
+                },
+                ""
+            )
+            .is_ok());
+    }
+    #[test]
+    fn explicit_stop_remains_off_after_restart_and_clears_both_consents() {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Backend::open(directory.path()).unwrap();
+        let mut settings = backend.settings().unwrap();
+        settings.observation.mode = ObservationMode::CurrentScreen;
+        settings.observation.cloud_consent = true;
+        settings.observation.screen_consent = true;
+        backend.save_settings(settings).unwrap();
+        let stopped = backend.stop_observation().unwrap();
+        assert_eq!(stopped.observation.mode, ObservationMode::Off);
+        assert!(!stopped.observation.cloud_consent);
+        assert!(!stopped.observation.screen_consent);
+        drop(backend);
+        let resumed = Backend::open(directory.path()).unwrap();
+        let settings = resumed.settings().unwrap();
+        assert_eq!(settings.observation.mode, ObservationMode::Off);
+        assert!(!settings.observation.cloud_consent);
+        assert!(!settings.observation.screen_consent);
+        assert!(settings.validate().is_ok());
+    }
+    #[test]
+    fn restart_resumes_approved_screen_and_allowed_apps_with_existing_preferences() {
+        for mode in [ObservationMode::CurrentScreen, ObservationMode::AllowedApps] {
+            let directory = tempfile::tempdir().unwrap();
+            let backend = Backend::open(directory.path()).unwrap();
+            let mut settings = backend.settings().unwrap();
+            settings.observation.mode = mode;
+            settings.observation.cloud_consent = true;
+            settings.observation.screen_consent = mode == ObservationMode::CurrentScreen;
+            settings.observation.allowed_apps = vec!["synthetic.editor".into()];
+            settings
+                .observation
+                .blocked_apps
+                .push("synthetic.private".into());
+            settings.observation.interval_seconds = 45;
+            settings.providers.chat.model = "synthetic-model".into();
+            backend.save_settings(settings.clone()).unwrap();
+            drop(backend);
+            let resumed = Backend::open(directory.path()).unwrap();
+            assert_eq!(resumed.settings().unwrap(), settings);
+            assert!(resumed.settings().unwrap().validate().is_ok());
+            resumed
+                .set_runtime_context(RuntimeContext {
+                    typing: Some(false),
+                    observation_visible: true,
+                    ..Default::default()
+                })
+                .unwrap();
+            let target = if mode == ObservationMode::CurrentScreen {
+                ObservationTarget {
+                    app_id: "screen".into(),
+                    window_id: "screen:1".into(),
+                }
+            } else {
+                ObservationTarget {
+                    app_id: "synthetic.editor".into(),
+                    window_id: "42".into(),
+                }
+            };
+            assert!(resumed.begin_observation(target, "").is_ok());
+        }
+    }
+    #[test]
+    fn incomplete_saved_observation_never_becomes_an_implicit_approval() {
+        for missing in ["cloud", "screen", "window"] {
+            let directory = tempfile::tempdir().unwrap();
+            let backend = Backend::open(directory.path()).unwrap();
+            let mut settings = backend.settings().unwrap();
+            settings.providers.chat.model = "synthetic-model".into();
+            backend.save_settings(settings.clone()).unwrap();
+            drop(backend);
+            settings.observation.mode = if missing == "window" {
+                ObservationMode::SelectedWindow
+            } else {
+                ObservationMode::CurrentScreen
+            };
+            settings.observation.cloud_consent = missing != "cloud";
+            settings.observation.screen_consent = missing != "screen";
+            // Synthetic on-disk corruption bypasses the normal validating writer.
+            let connection =
+                rusqlite::Connection::open(directory.path().join("ouento.sqlite3")).unwrap();
+            connection
+                .execute(
+                    "UPDATE settings SET json=?1 WHERE id=1",
+                    [serde_json::to_string(&settings).unwrap()],
+                )
+                .unwrap();
+            drop(connection);
+            let resumed = Backend::open(directory.path()).unwrap();
+            let settings = resumed.settings().unwrap();
+            assert_eq!(settings.observation.mode, ObservationMode::Off);
+            assert!(!settings.observation.cloud_consent);
+            assert!(!settings.observation.screen_consent);
+            assert_eq!(settings.providers.chat.model, "synthetic-model");
+            assert!(settings.validate().is_ok());
+        }
+    }
+    #[test]
+    fn restart_does_not_hide_invalid_unrelated_settings() {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Backend::open(directory.path()).unwrap();
+        let mut settings = backend.settings().unwrap();
+        backend.save_settings(settings.clone()).unwrap();
+        drop(backend);
+        settings.fps = 0;
+        let connection =
+            rusqlite::Connection::open(directory.path().join("ouento.sqlite3")).unwrap();
+        connection
+            .execute(
+                "UPDATE settings SET json=?1 WHERE id=1",
+                [serde_json::to_string(&settings).unwrap()],
+            )
+            .unwrap();
+        drop(connection);
+        assert!(Backend::open(directory.path()).is_err());
     }
     #[test]
     fn model_switch_identity_choice_controls_personality_and_memory() {

@@ -421,7 +421,7 @@ function observationBlocked() {
     companionSpeaking ||
     player?.session ||
     recorder.state !== 'idle' ||
-    typingState !== false ||
+    typingState === true ||
     snapshot.settings.quiet ||
     snapshot.settings.focusMode ||
     snapshot.settings.meetingMode
@@ -624,6 +624,15 @@ function pauseAutomaticObservation() {
   if (activeOrigin === 'observation' || (analysisRun && !analysisRun.manual)) cancelLocal();
 }
 
+function handleActivity(activity) {
+  locked = activity.locked === true;
+  typingState = typeof activity.typing === 'boolean' ? activity.typing : null;
+  renderer?.setPaused(locked || document.hidden);
+  if (locked) cancelLocal();
+  else if (typingState === true) pauseAutomaticObservation();
+  showObservationState();
+}
+
 function showObservationState() {
   if (!snapshot) return;
   const settings = snapshot.settings;
@@ -636,17 +645,15 @@ function showObservationState() {
           ? '화면 잠금 · 관찰 쉬는 중'
           : analysisRun?.manual
             ? '요청한 화면을 분석하는 중'
-            : typingState === null
-              ? '입력 감지 불가 · 자동 관찰 쉬는 중'
-              : typingState
-                ? '입력 중 · 자동 관찰 쉬는 중'
-                : observationError
-                  ? '화면 접근 실패 · 관찰 쉬는 중'
-                  : settings.focusMode || settings.meetingMode
-                    ? '집중·회의 중 · 자동 관찰 쉬는 중'
-                    : settings.quiet
-                      ? '조용히 있기 · 자동 관찰 쉬는 중'
-                      : '허용한 화면만 함께 보는 중';
+            : typingState === true
+              ? '입력 중 · 자동 관찰 쉬는 중'
+              : observationError
+                ? '화면 반응 대기 · 안내 확인'
+                : settings.focusMode || settings.meetingMode
+                  ? '집중·회의 중 · 자동 관찰 쉬는 중'
+                  : settings.quiet
+                    ? '조용히 있기 · 자동 관찰 쉬는 중'
+                    : `${settings.observation.mode === 'currentScreen' ? '마우스가 있는 모니터 전체 함께 보는 중' : '허용한 화면만 함께 보는 중'}${typingState === null ? ' · 입력 감지 미지원' : ''}`;
   update({
     observation: {
       status,
@@ -876,7 +883,9 @@ app.addEventListener('action', async (event) => {
         app.notify(
           granted && platform?.screenPermission === 'granted'
             ? 'Ouento의 화면 접근이 허용되어 있어요.'
-            : '시스템 설정에서 Ouento의 화면 기록을 허용해 주세요. 이미 허용했다면 Ouento를 완전히 종료한 뒤 다시 열어 주세요.',
+            : platform?.platform === 'macos'
+              ? '시스템 설정에서 Ouento의 화면 기록을 허용해 주세요. 이미 허용했는데 계속 거부되면 목록에서 Ouento를 제거하고 현재 사용하는 Ouento.app을 다시 추가해 주세요. 변경 후 앱을 완전히 종료하고 다시 열어 주세요.'
+              : '운영체제 설정에서 Ouento의 화면 접근을 허용한 뒤 화면 권한을 다시 확인해 주세요.',
           granted && platform?.screenPermission === 'granted' ? 'success' : 'info',
         );
         break;
@@ -888,9 +897,15 @@ app.addEventListener('action', async (event) => {
           meetingMode: o.meeting,
           observation: {
             ...snapshot.settings.observation,
-            mode: { off: 'off', selected: 'selectedWindow', allowed: 'allowedApps' }[o.mode],
+            mode: {
+              off: 'off',
+              selected: 'selectedWindow',
+              allowed: 'allowedApps',
+              screen: 'currentScreen',
+            }[o.mode],
             selectedWindowId: o.windowId || null,
             cloudConsent: o.cloudConsent,
+            screenConsent: o.mode === 'screen' && o.screenConsent === true,
             allowedApps: o.allowedApps,
             blockedApps: o.sensitiveApps,
           },
@@ -1011,16 +1026,7 @@ async function initialize() {
         showObservationState();
       }),
     );
-    unlisteners.push(
-      await on('activity-changed', (activity) => {
-        locked = activity.locked === true;
-        typingState = typeof activity.typing === 'boolean' ? activity.typing : null;
-        renderer?.setPaused(locked || document.hidden);
-        if (locked) cancelLocal();
-        else if (typingState !== false) pauseAutomaticObservation();
-        showObservationState();
-      }),
-    );
+    unlisteners.push(await on('activity-changed', handleActivity));
     unlisteners.push(
       await getCurrentWebviewWindow().onDragDropEvent(async (event) => {
         if (event.payload.type === 'drop') {

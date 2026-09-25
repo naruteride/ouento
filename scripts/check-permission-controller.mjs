@@ -227,10 +227,14 @@ for (const [requested, effective, notificationKind] of [
   assert.equal(h.app.data.observation.permission, effective);
   assert.equal(h.notifications.length, 1);
   assert.equal(h.notifications[0].kind, notificationKind);
-  assert.match(
-    h.notifications[0].message,
-    notificationKind === 'success' ? /허용되어/ : /완전히 종료한 뒤 다시/,
-  );
+  if (notificationKind === 'success') {
+    assert.match(h.notifications[0].message, /허용되어/);
+    assert.doesNotMatch(h.notifications[0].message, /Ouento를 제거|다시 추가/);
+  } else {
+    assert.match(h.notifications[0].message, /목록에서 Ouento를 제거/);
+    assert.match(h.notifications[0].message, /현재 사용하는 Ouento\.app을 다시 추가/);
+    assert.match(h.notifications[0].message, /변경 후 앱을 완전히 종료하고 다시 열어/);
+  }
   assert.deepEqual(h.app.data.settings, h.draft.settings);
   checks++;
 }

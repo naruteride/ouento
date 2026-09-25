@@ -1,10 +1,15 @@
-//! OS facts and window-only capture. Collection permission is checked before any pixels are read.
+//! OS facts and scoped capture. Collection permission is checked before any pixels are read.
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 mod events;
+mod screen;
 pub use events::{
     OsEvent, OsEventCertainty, OsEventKind, OsEventScope, OsEventSource, OsEventTarget,
     WindowEventTracker,
+};
+pub use screen::{
+    capture_screen, current_screen, validate_screen, CapturedScreen, ScreenCaptureRequest,
+    ScreenInfo,
 };
 use std::{
     hash::{Hash, Hasher},
@@ -117,10 +122,10 @@ pub fn capabilities() -> PlatformCapabilities {
         if typing_available {
             "최근 키보드 활동 여부만 확인합니다. 입력 내용은 수집하지 않습니다."
         } else {
-            "입력 활동을 확인할 수 없어 자동 관찰을 쉬고 있습니다. 시스템 설정의 입력 모니터링 권한을 확인하세요. 지금 화면 분석과 직접 대화는 계속 사용할 수 있습니다."
+            "입력 활동 감지는 사용할 수 없지만 허용된 화면 관찰은 계속합니다. 입력 중 자동으로 쉬게 하려면 시스템 설정에서 입력 모니터링을 허용하세요. 조용히 있기·집중·회의 모드는 계속 사용할 수 있습니다."
         }
     } else {
-        "최근 키보드·마우스 입력을 함께 감지해 입력 중 자동 관찰을 쉽니다. 입력 종류·키코드·내용은 수집하지 않습니다. 감지 실패 시 자동 관찰을 중단합니다."
+        "최근 키보드·마우스 입력을 함께 감지해 입력 중 자동 관찰을 쉽니다. 입력 종류·키코드·내용은 수집하지 않습니다. 감지할 수 없을 때도 허용된 화면 관찰은 계속합니다."
     };
     PlatformCapabilities {
         platform: std::env::consts::OS.into(),

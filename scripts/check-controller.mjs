@@ -201,9 +201,9 @@ run('stopObservationReaction()');
 resolve('manual-stopped');
 await pending;
 assert.equal(run('activeUtterance'), null);
-// Typing/unknown activity discards proactive replies, while stop preserves direct chat.
+// Actual typing discards proactive replies, while stop preserves direct chat.
 pending = reaction('automatic-stopped', 'observation');
-run('pauseAutomaticReaction()');
+run('handleActivity({typing:true,locked:false})');
 resolve('automatic-stopped');
 await pending;
 assert.equal(run('activeUtterance'), null);
@@ -284,6 +284,29 @@ await pending;
 run("invalidateObservation({utteranceId:'direct-current'})");
 assert.equal(run('player.session.id'), 'direct-current');
 assert.equal(run('activeOrigin'), 'direct');
+
+// Missing typing detection cannot cancel pending validation or an accepted automatic reply.
+pending = reaction('automatic-unknown', 'observation');
+const unknownEpoch = run('reactionGeneration');
+run('handleActivity({typing:null,locked:false})');
+assert.equal(run('reactionGeneration'), unknownEpoch);
+resolve('automatic-unknown');
+await pending;
+assert.equal(run('activeUtterance'), 'automatic-unknown');
+run('handleActivity({locked:false})');
+assert.equal(run('activeUtterance'), 'automatic-unknown');
+run('handleActivity({typing:true,locked:false})');
+assert.equal(run('activeUtterance'), null);
+
+// Screen locking remains an unconditional cancellation even without typing detection.
+pending = reaction('locked-unknown', 'observation');
+run('handleActivity({typing:null,locked:true})');
+resolve('locked-unknown');
+await pending;
+assert.equal(run('activeUtterance'), null);
+assert.equal(run('renderer.paused'), true);
+run('handleActivity({typing:null,locked:false})');
+assert.equal(run('renderer.paused'), false);
 console.log(
-  'companion controller: 18 deferred-event, preview, caption, visibility, manual-observation, native-denial, scoped invalidation scenarios passed',
+  'companion controller: 20 deferred-event, preview, caption, visibility, unknown-activity, manual-observation, native-denial, scoped invalidation scenarios passed',
 );

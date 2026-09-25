@@ -13,6 +13,7 @@
     "tauri": "node scripts/tauri.mjs",
     "desktop": "node scripts/tauri.mjs dev",
     "desktop:build": "node scripts/tauri.mjs build",
+    "signing:setup": "node scripts/setup-macos-signing.mjs",
     "test": "node --test tests/*.test.js",
     "check": "tsc --noEmit",
     "assets:setup": "node scripts/setup-assets.mjs",

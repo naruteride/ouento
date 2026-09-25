@@ -83,6 +83,12 @@ function cancelReaction() {
   stopPlayback();
 }
 
+function handleActivity(activity) {
+  locked = activity.locked === true;
+  updateVisibility();
+  if (!locked && activity.typing === true) pauseAutomaticReaction();
+}
+
 function playbackChanged(state) {
   // TTS 준비에 9초 이상 걸려도 실제 재생 시작에 자막을 다시 보인다.
   if (state.speaking && state.utteranceId === activeUtterance && activeText) {
@@ -292,13 +298,7 @@ async function start() {
   unlisteners.push(await on('speech-cancelled', cancelReaction));
   unlisteners.push(await on('observation-stopped', stopObservationReaction));
   unlisteners.push(await on('observation-invalidated', invalidateObservation));
-  unlisteners.push(
-    await on('activity-changed', (activity) => {
-      locked = activity.locked === true;
-      updateVisibility();
-      if (!locked && activity.typing !== false) pauseAutomaticReaction();
-    }),
-  );
+  unlisteners.push(await on('activity-changed', handleActivity));
   unlisteners.push(
     await on('companion-visibility', (event) => {
       visible = event.visible;

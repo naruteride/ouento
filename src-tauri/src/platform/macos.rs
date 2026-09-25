@@ -1,5 +1,8 @@
 //! CoreGraphics/CoreFoundation boundary. No accessibility text or key contents are collected.
 use super::{timestamp, ActivitySnapshot, CursorSample};
+#[path = "macos_screen.rs"]
+mod screen_capture;
+pub(super) use screen_capture::{capture_screen_pixels, screen_windows};
 use std::{
     ffi::{c_char, c_int, c_void},
     path::Path,
