@@ -1,5 +1,38 @@
-use super::types::{Emotion, Gaze, Gesture, Reaction};
+use super::types::{CharacterProfile, Emotion, Gaze, Gesture, Reaction};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::sync::OnceLock;
+
+fn templates() -> &'static Vec<Value> {
+    static TEMPLATES: OnceLock<Vec<Value>> = OnceLock::new();
+    TEMPLATES.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../src/personality-presets.json"))
+            .expect("bundled personality templates must be valid JSON")
+    })
+}
+
+/// Shared with the settings UI. Read the fields explicitly to avoid recursively
+/// calling CharacterProfile::default during serde's missing-field handling.
+pub fn template_profile(id: &str) -> Result<CharacterProfile, String> {
+    let template = templates()
+        .iter()
+        .find(|template| template["id"] == id)
+        .ok_or("지원하지 않는 성격입니다.")?;
+    let field = |name: &str| {
+        template["profile"][name]
+            .as_str()
+            .expect("bundled character profile fields must be strings")
+            .to_owned()
+    };
+    Ok(CharacterProfile {
+        user_address: field("userAddress"),
+        relationship: field("relationship"),
+        appearance: field("appearance"),
+        personality_prompt: field("personalityPrompt"),
+        speech_style: field("speechStyle"),
+        dialogue_examples: field("dialogueExamples"),
+    })
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,14 +47,29 @@ pub struct Personality {
 }
 
 pub fn personalities() -> Vec<Personality> {
-    vec![
-        Personality { id: "tsundere".into(), name: "수줍은 츤데레".into(), description: "툭 던지는 말 뒤에 숨은 다정함".into(), expression_strength: 0.7, gesture_strength: 0.5, min_interval_seconds: 55,
-            speaking_style: "짧고 담백한 한국어 반말. 수줍어서 마음을 곧바로 드러내지 않지만 실제로 따뜻하게 대한다. 모욕하거나 소유하려 하지 않는다.".into() },
-        Personality { id: "cat".into(), name: "무심한 고양이".into(), description: "말수는 적어도 늘 곁에".into(), expression_strength: 0.35, gesture_strength: 0.25, min_interval_seconds: 100,
-            speaking_style: "무심하고 느긋한 한국어 반말. 한두 문장으로 간결하게 말한다. 필요 없는 질문을 반복하지 않고 조용히 함께한다.".into() },
-        Personality { id: "cheerleader".into(), name: "작은 응원단".into(), description: "작은 진전도 함께 기뻐하는 친구".into(), expression_strength: 0.95, gesture_strength: 0.8, min_interval_seconds: 35,
-            speaking_style: "밝고 다정한 한국어 반말. 작은 성취를 구체적으로 축하하되 과장된 확신이나 상투적인 칭찬을 반복하지 않는다.".into() },
-    ]
+    templates()
+        .iter()
+        .map(|template| {
+            let id = template["id"].as_str().expect("preset id");
+            let (expression_strength, gesture_strength, min_interval_seconds) = match id {
+                "tsundere" => (0.7, 0.5, 55),
+                "cat" => (0.35, 0.25, 100),
+                _ => (0.95, 0.8, 35),
+            };
+            Personality {
+                id: id.into(),
+                name: template["name"].as_str().expect("preset name").into(),
+                description: template["subtitle"]
+                    .as_str()
+                    .expect("preset subtitle")
+                    .into(),
+                expression_strength,
+                gesture_strength,
+                min_interval_seconds,
+                speaking_style: template_profile(id).expect("preset profile").speech_style,
+            }
+        })
+        .collect()
 }
 
 pub fn personality(id: &str) -> Result<Personality, String> {
@@ -32,6 +80,31 @@ pub fn personality(id: &str) -> Result<Personality, String> {
 }
 
 pub fn preview_personality(id: &str) -> Result<Reaction, String> {
+    let p = personality(id)?;
+    let text = templates()
+        .iter()
+        .find(|template| template["id"] == id)
+        .and_then(|template| template["quote"].as_str())
+        .ok_or("성격 예시를 찾을 수 없습니다.")?;
+    let (gaze, gesture) = match id {
+        "tsundere" => (Gaze::Away, Gesture::Tilt),
+        "cat" => (Gaze::User, Gesture::Nod),
+        _ => (Gaze::User, Gesture::SmallBounce),
+    };
+    Ok(Reaction {
+        should_react: true,
+        text: text.into(),
+        emotion: Emotion::Happy,
+        intensity: p.expression_strength,
+        gesture_intensity: Some(p.gesture_strength),
+        gaze,
+        gesture,
+        priority: 1,
+    })
+}
+
+/// Explicit result fixtures stay separate from the everyday personality preview.
+pub fn success_reaction(id: &str) -> Result<Reaction, String> {
     let p = personality(id)?;
     let (text, gaze, gesture) = match id {
         "tsundere" => (
@@ -98,7 +171,11 @@ pub fn classify_result_scene(text: &str, owner_is_user: bool) -> ResultScene {
     {
         return ResultScene::Negative;
     }
-    if compact.contains("합격") || compact.contains("accepted") || compact.contains("passed") {
+    let explicit_english_result = ["exam", "admission", "application", "interview"]
+        .iter()
+        .any(|context| compact.contains(context))
+        && (compact.contains("accepted") || compact.contains("passed"));
+    if compact.contains("합격") || explicit_english_result {
         if owner_is_user {
             ResultScene::UserSuccess
         } else {
@@ -116,7 +193,7 @@ pub fn result_scene_reaction(
 ) -> Result<Option<Reaction>, String> {
     Ok(match classify_result_scene(text, owner_is_user) {
         ResultScene::NotResult => None,
-        ResultScene::UserSuccess => Some(preview_personality(id)?),
+        ResultScene::UserSuccess => Some(success_reaction(id)?),
         ResultScene::OwnerUnknown => Some(Reaction {
             should_react: true,
             text: "합격이라고 적혀 있는데, 네 결과야?".into(),
@@ -188,5 +265,36 @@ mod tests {
         assert_eq!(c.gesture_intensity, Some(0.8));
         assert_ne!(a.gesture, b.gesture);
         assert_ne!(b.gesture, c.gesture);
+        for preview in [a, b, c] {
+            assert!(!preview.text.contains("합격"));
+            assert!(!preview.text.contains("붙었"));
+        }
+    }
+    #[test]
+    fn ordinary_success_is_not_an_admission_result() {
+        for text in [
+            "All tests passed",
+            "Build successful",
+            "게임 승리",
+            "코드 테스트 통과",
+        ] {
+            assert_eq!(classify_result_scene(text, true), ResultScene::NotResult);
+        }
+        assert_eq!(
+            classify_result_scene("You passed the exam", true),
+            ResultScene::UserSuccess
+        );
+    }
+    #[test]
+    fn all_bundled_profiles_are_valid_and_share_the_frontend_templates() {
+        for preset in personalities() {
+            let profile = template_profile(&preset.id).unwrap();
+            profile.validate().unwrap();
+            assert_eq!(preset.speaking_style, profile.speech_style);
+        }
+        assert_eq!(
+            CharacterProfile::default(),
+            template_profile("tsundere").unwrap()
+        );
     }
 }

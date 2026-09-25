@@ -109,9 +109,15 @@ function playbackChanged(state) {
 function settingsCancelSpeech(previous, next) {
   return (
     previous &&
-    ['personality', 'providers', 'muted', 'voiceEnabled', 'activeModelId'].some(
-      (key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]),
-    )
+    [
+      'personality',
+      'characterName',
+      'characterProfile',
+      'providers',
+      'muted',
+      'voiceEnabled',
+      'activeModelId',
+    ].some((key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]))
   );
 }
 
@@ -366,7 +372,7 @@ document.querySelector('#settings').onclick = () =>
   call('show_settings').catch((error) => say(String(error)));
 document.querySelector('#quiet').onclick = () =>
   call('save_settings', {
-    settings: { ...snapshot.settings, quiet: !snapshot.settings.quiet },
+    patch: { quiet: !snapshot.settings.quiet },
   }).catch((error) => say(String(error)));
 document.querySelector('#stop').onclick = () => {
   stopObservationReaction();

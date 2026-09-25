@@ -303,7 +303,7 @@ function controller({
     call: async (name, args) => {
       calls.push({ name, args: structuredClone(args) });
       if (name === 'save_settings') {
-        saved = { ...saved, settings: structuredClone(args.settings) };
+        saved = { ...saved, settings: { ...saved.settings, ...structuredClone(args.patch) } };
         return saved.settings;
       }
       if (name === 'snapshot') return structuredClone(saved);
@@ -389,7 +389,7 @@ test('controller saves screen as currentScreen with both explicit consents', asy
   f.submit();
   const h = controller();
   await h.action(f.actions[0]);
-  const saved = h.calls.find((call) => call.name === 'save_settings').args.settings.observation;
+  const saved = h.calls.find((call) => call.name === 'save_settings').args.patch.observation;
   assert.equal(saved.mode, 'currentScreen');
   assert.equal(saved.screenConsent, true);
   assert.equal(saved.cloudConsent, true);

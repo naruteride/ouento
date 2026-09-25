@@ -22,7 +22,7 @@
   },
   messages: [{ id: '...', role: 'user'|'assistant'|'system', content: '...', time: '14:32' }],
   busy: false, recording: false, speaking: false,
-  personality: { preset: 'tsundere'|'cat'|'cheerleader', intensity: 0.65, frequency: 0.4, jealousy: false, jealousyIntensity: 0.3, jealousyFrequency: 0.2 },
+  personality: { preset: 'tsundere'|'cat'|'cheerleader', characterName: '마오', profile: { userAddress: '오빠', relationship: '', appearance: '', personalityPrompt: '', speechStyle: '', dialogueExamples: '' }, intensity: 0.65, frequency: 0.4, jealousy: false, jealousyIntensity: 0.3, jealousyFrequency: 0.2 },
   observation: {
     mode: 'off'|'selected'|'allowed'|'screen', quiet: false, focus: false, meeting: false,
     windowId: '', cloudConsent: false, screenConsent: false,
@@ -76,8 +76,8 @@
 | `expression-preview`     | `emotion, intensity`                                 | happy, sad, surprised, annoyed, neutral 표정                                                 |
 | `mouth-preview`          | `openness`                                           | 입 개방 정지 미리보기                                                                        |
 | `audio-preview`          | 없음                                                 | 공식 Kei 한국어 WAV 재생·립싱크. AI·마이크 사용 없음                                         |
-| `personality-save`       | `personality`                                        | 프리셋·표정 강도·빈도·질투 설정 저장                                                         |
-| `personality-preview`    | `preset, scene: exam-pass`                           | 동일 합격 장면 미리보기                                                                      |
+| `personality-save`       | `requestId, personality`                                        | 이름·프로필·프리셋·표정 강도·빈도·질투 저장                                                         |
+| `personality-preview`    | `preset, scene: taking-a-break, userAddress, text`                           | 작성 중 호칭을 반영한 일상 고정 예시 미리보기                                                                      |
 | `observation-refresh`    | 없음                                                 | 선택 가능한 창 목록                                                                          |
 | `observation-save`       | `observation`                                        | 범위·클라우드 동의 적용                                                                      |
 | `observation-analyze`    | 없음                                                 | 현재 허용 범위의 화면을 명시적으로 한 번 분석. 자동 반응의 입력·조용히·집중·회의 억제는 제외 |
@@ -111,3 +111,5 @@
 - 기억 삭제는 항목 단위다. 새 인격으로 교체하려면 가져오기 창의 명시적 선택을 사용한다.
 - API 키는 HTML·문서·로그·일반 상태에 삽입하지 않는다. 저장 후 입력을 지운다. 백엔드가 OS 보안 저장소에 보관해야 한다.
 - 표정/입 미리보기는 실제 렌더러 연결이 없을 때 성공으로 표시하지 않는다. `character.loaded`가 false면 관련 조작을 비활성화한다.
+
+성격 저장은 `app.completePersonalitySave(requestId, error=null)`로 실제 저장 결과를 알린다. 성공 시에만 초안을 해제하고 실패 시 편집값을 보존한다. 저장 중에는 성격 필드를 잠그며 이전 요청의 늦은 완료는 무시한다. 캐릭터 이름과 `profile`의 필드·한도·예시는 [성격 설정 안내](personality.md)를 따른다.

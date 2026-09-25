@@ -59,9 +59,22 @@ impl Store {
             .map_err(db_error)?;
         match raw {
             None => Ok(Settings::default()),
-            Some(raw) => serde_json::from_str(&raw).map_err(|_| {
-                "설정 파일이 손상되었습니다. 데이터를 백업한 후 초기화해 주세요.".into()
-            }),
+            Some(raw) => {
+                let mut value: serde_json::Value = serde_json::from_str(&raw).map_err(|_| {
+                    "설정 파일이 손상되었습니다. 데이터를 백업한 후 초기화해 주세요."
+                })?;
+                // Older installations inherit the selected preset, not the new
+                // default's relationship or form of address. Existing edits win.
+                if value.get("characterProfile").is_none() && value.is_object() {
+                    let id = value["personality"].as_str().unwrap_or("tsundere");
+                    value["characterProfile"] =
+                        serde_json::to_value(crate::domain::personality::template_profile(id)?)
+                            .map_err(|_| "캐릭터 설정을 변환할 수 없습니다.")?;
+                }
+                serde_json::from_value(value).map_err(|_| {
+                    "설정 파일이 손상되었습니다. 데이터를 백업한 후 초기화해 주세요.".into()
+                })
+            }
         }
     }
     pub fn save_model_metadata(&self, id: &str, metadata: &ModelMetadata) -> Result<(), String> {
@@ -297,6 +310,73 @@ mod tests {
         let mut value = serde_json::to_value(s).unwrap();
         value["apiKey"] = "should-be-rejected".into();
         assert!(serde_json::from_value::<Settings>(value).is_err());
+    }
+    #[test]
+    fn legacy_profiles_follow_selected_presets_and_custom_profiles_survive_reopen() {
+        for id in ["tsundere", "cat", "cheerleader"] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = Store::open(directory.path()).unwrap();
+            let mut raw = serde_json::to_value(Settings::default()).unwrap();
+            raw["personality"] = id.into();
+            raw["characterName"] = "기존 캐릭터".into();
+            raw.as_object_mut().unwrap().remove("characterProfile");
+            store
+                .lock()
+                .unwrap()
+                .execute(
+                    "INSERT INTO settings(id,json) VALUES(1,?1)",
+                    [raw.to_string()],
+                )
+                .unwrap();
+            let mut migrated = store.settings().unwrap();
+            assert_eq!(migrated.personality, id);
+            assert_eq!(migrated.character_name, "기존 캐릭터");
+            assert_eq!(
+                migrated.character_profile,
+                crate::domain::personality::template_profile(id).unwrap()
+            );
+            migrated.character_profile.user_address = "선배".into();
+            migrated.character_profile.appearance = "파란 머리의 가상 캐릭터".into();
+            migrated.character_profile.personality_prompt = "차분하게 농담하는 친구".into();
+            migrated.character_profile.speech_style = "존댓말과 짧은 감탄".into();
+            migrated.character_profile.dialogue_examples =
+                "대사: 선배, 또 재미있는 걸 찾으셨네요.".into();
+            store.save_settings(&migrated).unwrap();
+            drop(store);
+            assert_eq!(
+                Store::open(directory.path()).unwrap().settings().unwrap(),
+                migrated
+            );
+        }
+    }
+    #[test]
+    fn profile_limits_reject_invalid_input_without_losing_saved_settings() {
+        let store = store();
+        let original = Settings::default();
+        store.save_settings(&original).unwrap();
+        for (field, limit) in [
+            ("userAddress", 40),
+            ("relationship", 200),
+            ("appearance", 1000),
+            ("personalityPrompt", 3000),
+            ("speechStyle", 1000),
+            ("dialogueExamples", 3000),
+        ] {
+            let mut json = serde_json::to_value(&original).unwrap();
+            json["characterProfile"][field] = "가".repeat(limit).into();
+            assert!(serde_json::from_value::<Settings>(json.clone())
+                .unwrap()
+                .validate()
+                .is_ok());
+            json["characterProfile"][field] = "가".repeat(limit + 1).into();
+            assert!(store
+                .save_settings(&serde_json::from_value(json).unwrap())
+                .is_err());
+            assert_eq!(store.settings().unwrap(), original);
+        }
+        let mut json = serde_json::to_value(&original).unwrap();
+        json["characterProfile"]["systemOverride"] = true.into();
+        assert!(serde_json::from_value::<Settings>(json).is_err());
     }
     #[test]
     fn core_metadata_survives_reopen_and_stays_separate_per_model() {

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ouento 성격 설정 회귀 검사</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f5f1;
+        font: 14px/1.6 system-ui;
+      }
+      header,
+      #results {
+        padding: 16px 24px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      p {
+        margin: 8px 0;
+      }
+      #fixture {
+        height: 780px;
+        border-block: 1px solid #d9d9d1;
+      }
+      [data-passed='true'] {
+        color: #276540;
+      }
+      [data-passed='false'] {
+        color: #a02626;
+      }
+      #report {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>개발 전용 · 성격 설정과 초안 보존</h1>
+      <p>합성 설정으로 실제 Web Component를 검사합니다. AI 호출·실제 설정 저장은 하지 않습니다.</p>
+      <button id="run" type="button">성격 설정 회귀 검사 실행</button>
+      <p id="status" role="status">검사 준비 중…</p>
+    </header>
+    <div id="fixture"><ouento-app></ouento-app></div>
+    <section id="results" aria-label="회귀 검사 결과">
+      <ol id="checks"></ol>
+      <details>
+        <summary>상세 보고서</summary>
+        <pre id="report"></pre>
+      </details>
+    </section>
+    <script type="module" src="./personality.js"></script>
+  </body>
+</html>

@@ -95,6 +95,8 @@ export function uiSnapshot(snapshot) {
     },
     personality: {
       preset: s.personality,
+      characterName: s.characterName,
+      ...(s.characterProfile ? { profile: s.characterProfile } : {}),
       intensity: s.personalityIntensity,
       frequency: s.personalityFrequency,
       jealousy: s.jealousy.enabled,

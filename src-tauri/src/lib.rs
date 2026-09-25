@@ -38,6 +38,7 @@ struct AppState {
     dragging: AtomicBool,
     desired_interactive: AtomicBool,
     observation_approval: Mutex<Option<WindowIdentity>>,
+    settings_updates: Mutex<()>,
 }
 
 #[tauri::command]
@@ -61,41 +62,56 @@ fn snapshot(state: State<AppState>) -> Result<Value, String> {
 fn save_settings(
     app: tauri::AppHandle,
     state: State<AppState>,
-    settings: Settings,
+    patch: Value,
 ) -> Result<Settings, String> {
-    settings.validate()?;
-    let current = state.backend.settings()?;
-    let old_approval = state
-        .observation_approval
+    let _update = state
+        .settings_updates
         .lock()
-        .map_err(|_| "관찰 승인 상태를 읽을 수 없습니다.")?
-        .clone();
-    let approval = if settings.observation.mode == ObservationMode::SelectedWindow {
-        let same_selection = current.observation.mode == ObservationMode::SelectedWindow
-            && current.observation.selected_window_id == settings.observation.selected_window_id;
-        if same_selection {
-            Some(old_approval.ok_or("관찰을 중지한 후 창을 다시 선택해 주세요.")?)
-        } else {
-            let windows = platform::list_windows()?;
-            let window = windows
-                .iter()
-                .find(|window| {
-                    Some(window.id.to_string()) == settings.observation.selected_window_id
-                })
-                .ok_or("함께 볼 창이 닫혔습니다. 창을 다시 선택해 주세요.")?;
-            if platform::sensitive_app(
-                &window.app_id,
-                &window.app_name,
-                &settings.observation.blocked_apps,
-            ) {
-                return Err("민감 앱으로 제외된 창은 선택할 수 없습니다.".into());
+        .map_err(|_| "설정 변경을 시작할 수 없습니다.")?;
+    let mut approval = None;
+    let settings = state
+        .backend
+        .patch_settings_with_validation(patch, |current, settings| {
+            if current.active_model_id != settings.active_model_id {
+                if let Some(id) = &settings.active_model_id {
+                    if !BUILTIN_MODEL_IDS.contains(&id.as_str()) {
+                        state.models.get(id)?;
+                    }
+                }
             }
-            Some(WindowIdentity::from(window))
-        }
-    } else {
-        None
-    };
-    let settings = state.backend.save_settings(settings)?;
+            let old_approval = state
+                .observation_approval
+                .lock()
+                .map_err(|_| "관찰 승인 상태를 읽을 수 없습니다.")?
+                .clone();
+            approval = if settings.observation.mode == ObservationMode::SelectedWindow {
+                let same_selection = current.observation.mode == ObservationMode::SelectedWindow
+                    && current.observation.selected_window_id
+                        == settings.observation.selected_window_id;
+                if same_selection {
+                    Some(old_approval.ok_or("관찰을 중지한 후 창을 다시 선택해 주세요.")?)
+                } else {
+                    let windows = platform::list_windows()?;
+                    let window = windows
+                        .iter()
+                        .find(|window| {
+                            Some(window.id.to_string()) == settings.observation.selected_window_id
+                        })
+                        .ok_or("함께 볼 창이 닫혔습니다. 창을 다시 선택해 주세요.")?;
+                    if platform::sensitive_app(
+                        &window.app_id,
+                        &window.app_name,
+                        &settings.observation.blocked_apps,
+                    ) {
+                        return Err("민감 앱으로 제외된 창은 선택할 수 없습니다.".into());
+                    }
+                    Some(WindowIdentity::from(window))
+                }
+            } else {
+                None
+            };
+            Ok(())
+        })?;
     *state
         .observation_approval
         .lock()
@@ -281,13 +297,15 @@ fn switch_model(
     id: String,
     preserve_identity: bool,
 ) -> Result<Settings, String> {
+    let _update = state
+        .settings_updates
+        .lock()
+        .map_err(|_| "설정 변경을 시작할 수 없습니다.")?;
     if !BUILTIN_MODEL_IDS.contains(&id.as_str()) {
         state.models.get(&id)?;
     }
     state.backend.reset_character(preserve_identity)?;
-    let mut settings = state.backend.settings()?;
-    settings.active_model_id = Some(id);
-    let settings = state.backend.save_settings(settings)?;
+    let settings = state.backend.patch_settings(json!({"activeModelId":id}))?;
     app.emit("speech-cancelled", json!({"origin":"model"}))
         .map_err(|e| e.to_string())?;
     app.emit("settings-changed", &settings)
@@ -312,6 +330,10 @@ fn get_platform_capabilities() -> platform::PlatformCapabilities {
 }
 #[tauri::command]
 fn stop_observation(app: tauri::AppHandle, state: State<AppState>) -> Result<Settings, String> {
+    let _update = state
+        .settings_updates
+        .lock()
+        .map_err(|_| "설정 변경을 시작할 수 없습니다.")?;
     let settings = state.backend.stop_observation()?;
     *state
         .observation_approval
@@ -857,6 +879,7 @@ pub fn run() {
                 dragging: AtomicBool::new(false),
                 desired_interactive: AtomicBool::new(false),
                 observation_approval: Mutex::new(None),
+                settings_updates: Mutex::new(()),
             });
             let settings_item = tauri::menu::MenuItem::with_id(
                 app,

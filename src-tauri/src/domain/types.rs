@@ -10,6 +10,7 @@ pub struct Settings {
     pub personality_intensity: f32,
     pub personality_frequency: f32,
     pub character_name: String,
+    pub character_profile: CharacterProfile,
     pub fps: u32,
     pub muted: bool,
     pub quiet: bool,
@@ -34,6 +35,7 @@ impl Default for Settings {
             personality_intensity: 0.7,
             personality_frequency: 0.5,
             character_name: "마오".into(),
+            character_profile: CharacterProfile::default(),
             fps: 30,
             muted: false,
             quiet: false,
@@ -63,6 +65,7 @@ impl Settings {
         if self.character_name.trim().is_empty() || self.character_name.chars().count() > 40 {
             return Err("캐릭터 이름은 1~40자로 입력해 주세요.".into());
         }
+        self.character_profile.validate()?;
         if self.fps != 30 && self.fps != 60 {
             return Err("FPS는 30 또는 60이어야 합니다.".into());
         }
@@ -118,6 +121,48 @@ impl Settings {
         self.providers.tts.validate()?;
         if self.providers.voice.is_empty() || self.providers.voice.len() > 100 {
             return Err("음성 이름을 확인해 주세요.".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct CharacterProfile {
+    pub user_address: String,
+    pub relationship: String,
+    pub appearance: String,
+    pub personality_prompt: String,
+    pub speech_style: String,
+    pub dialogue_examples: String,
+}
+
+impl Default for CharacterProfile {
+    fn default() -> Self {
+        super::personality::template_profile("tsundere")
+            .expect("bundled default character profile must exist")
+    }
+}
+
+impl CharacterProfile {
+    pub fn validate(&self) -> Result<(), String> {
+        for (label, value, limit) in [
+            ("사용자 호칭", &self.user_address, 40),
+            ("관계 설정", &self.relationship, 200),
+            ("외형 설정", &self.appearance, 1000),
+            ("성격 프롬프트", &self.personality_prompt, 3000),
+            ("말투 설정", &self.speech_style, 1000),
+            ("대사 예시", &self.dialogue_examples, 3000),
+        ] {
+            if value.chars().count() > limit
+                || value
+                    .chars()
+                    .any(|c| c.is_control() && c != '\n' && c != '\t')
+            {
+                return Err(format!(
+                    "{label}은 {limit}자 이하의 텍스트로 입력해 주세요."
+                ));
+            }
         }
         Ok(())
     }

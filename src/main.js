@@ -97,8 +97,7 @@ function showSnapshot() {
   showObservationState();
 }
 async function save(patch) {
-  const settings = { ...snapshot.settings, ...patch };
-  await call('save_settings', { settings });
+  await call('save_settings', { patch });
   await refresh();
 }
 async function loadModel(id, sourceOverride = null) {
@@ -581,9 +580,15 @@ async function saveModelMetadata(id) {
 function settingsCancelSpeech(previous, next) {
   return (
     previous &&
-    ['personality', 'providers', 'muted', 'voiceEnabled', 'activeModelId'].some(
-      (key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]),
-    )
+    [
+      'personality',
+      'characterName',
+      'characterProfile',
+      'providers',
+      'muted',
+      'voiceEnabled',
+      'activeModelId',
+    ].some((key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]))
   );
 }
 
@@ -827,21 +832,21 @@ app.addEventListener('action', async (event) => {
               priority: 2,
               ...{
                 tsundere: {
-                  text: '붙었네. 그렇게 준비했으니까… 축하해.',
+                  text: '잠깐 쉬어. 내가 심심해서 그러는 건… 조금밖에 없거든?',
                   intensity: 0.7,
                   gestureIntensity: 0.5,
                   gaze: 'away',
                   gesture: 'tilt',
                 },
                 cat: {
-                  text: '합격이네. 잘했어. 이제 좀 쉬자.',
+                  text: '잠깐 쉬자. 급한 건 잠깐 내려놔도 돼.',
                   intensity: 0.35,
                   gestureIntensity: 0.25,
                   gaze: 'user',
                   gesture: 'nod',
                 },
                 cheerleader: {
-                  text: '해냈다! 열심히 준비한 만큼 좋은 소식이 왔네!',
+                  text: '잠깐 쉬어 가자! 돌아오면 나도 옆에서 같이 힘낼게.',
                   intensity: 0.95,
                   gestureIntensity: 0.8,
                   gaze: 'user',
@@ -849,6 +854,9 @@ app.addEventListener('action', async (event) => {
                 },
               }[a.preset],
             };
+        // This is a fixed, explicitly labelled example; only its draft address
+        // is substituted by the UI, without an AI request or a settings write.
+        if (typeof a.text === 'string' && a.text.trim()) reaction.text = a.text.trim();
         renderer?.react(reaction);
         await toCompanion('reaction', { reaction });
         if (reaction.text) app.notify(reaction.text, 'info');
@@ -856,8 +864,10 @@ app.addEventListener('action', async (event) => {
       }
       case 'personality-save': {
         const p = a.personality;
-        await save({
+        const patch = {
           personality: p.preset,
+          characterName: p.characterName,
+          characterProfile: p.profile,
           personalityIntensity: p.intensity,
           personalityFrequency: p.frequency,
           jealousy: {
@@ -865,7 +875,12 @@ app.addEventListener('action', async (event) => {
             intensity: p.jealousyIntensity,
             frequency: p.jealousyFrequency,
           },
-        });
+        };
+        const settings = await call('save_settings', { patch });
+        if (settingsCancelSpeech(snapshot.settings, settings)) cancelLocal();
+        snapshot = { ...snapshot, settings };
+        showSnapshot();
+        app.completePersonalitySave(a.requestId);
         app.notify('성격을 저장했어요.');
         break;
       }
@@ -966,6 +981,7 @@ app.addEventListener('action', async (event) => {
     }
   } catch (err) {
     if (a.type === 'memory-save') app.completeMemorySave(a.requestId, String(err));
+    if (a.type === 'personality-save') app.completePersonalitySave(a.requestId, String(err));
     if (err?.name !== 'AbortError') error(err);
   }
 });

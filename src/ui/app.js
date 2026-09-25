@@ -1,5 +1,6 @@
 import { styles } from './styles.js';
 import { patchHTML, setText } from './dom.js';
+import personas from '../personality-presets.json' with { type: 'json' };
 
 const icons = {
   flower:
@@ -90,6 +91,8 @@ const defaults = {
   speaking: false,
   personality: {
     preset: 'tsundere',
+    characterName: '마오',
+    profile: personas[0].profile,
     intensity: 0.65,
     frequency: 0.4,
     jealousy: false,
@@ -147,8 +150,8 @@ const pages = {
     name: '성격',
     eyebrow: 'A PERSONALITY THAT FITS YOU',
     title: '말투에도, 마음이 있어요.',
-    description: '같은 순간, 서로 다른 반응. 잘 맞는 성격을 찾아보세요.',
-    tag: '세 가지 다른 온도',
+    description: '부르는 이름부터 말투까지, 나만의 캐릭터를 만들어 보세요.',
+    tag: '나와 함께할 성격과 이야기',
   },
   observe: {
     name: '함께 보기',
@@ -173,32 +176,24 @@ const pages = {
   },
 };
 
-const personas = [
-  {
-    id: 'tsundere',
-    emoji: '✦',
-    name: '서툰 다정함',
-    subtitle: '툴툴대지만, 늘 곁에',
-    quote: '붙었네. 그렇게 준비했으니까… 축하해.',
-    character: '조금 서툴러도 다정한',
-  },
-  {
-    id: 'cat',
-    emoji: '☾',
-    name: '느긋한 고양이',
-    subtitle: '말은 적게, 마음은 깊게',
-    quote: '합격이네. 잘했어. 이제 좀 쉬자.',
-    character: '말없이 함께하는',
-  },
-  {
-    id: 'cheerleader',
-    emoji: '☀',
-    name: '작은 응원단',
-    subtitle: '당신의 기쁨을 가장 먼저',
-    quote: '해냈다! 열심히 준비한 만큼 좋은 소식이 왔네!',
-    character: '작은 순간도 응원하는',
-  },
+const personalityFields = [
+  { name: 'characterName', label: '캐릭터 이름', limit: 40, required: true },
+  { name: 'userAddress', label: '나를 부르는 호칭', limit: 40 },
+  { name: 'relationship', label: '우리의 관계', limit: 200 },
+  { name: 'appearance', label: '캐릭터의 외형', limit: 1000 },
+  { name: 'personalityPrompt', label: '성격과 행동', limit: 3000 },
+  { name: 'speechStyle', label: '말투와 표현', limit: 1000 },
+  { name: 'dialogueExamples', label: '상황별 대사 예시', limit: 3000 },
 ];
+
+function personaQuote(preset, userAddress, characterName = '') {
+  const persona = personas.find((item) => item.id === preset) || personas[0];
+  const address = userAddress.trim();
+  return persona.quote
+    .replaceAll('{{userAddress}}, ', address ? `${address}, ` : '')
+    .replaceAll('{{userAddress}}', address)
+    .replaceAll('{{characterName}}', characterName.trim());
+}
 
 const mappingLabels = {
   mouthOpen: '입 벌림',
@@ -288,6 +283,10 @@ export class OuentoApp extends HTMLElement {
     this._memorySaveSequence = 0;
     this._memorySaveRequest = null;
     this._syncMappingFields = false;
+    this._personalitySaveSequence = 0;
+    this._personalitySaveRequest = null;
+    this._personalitySaveError = '';
+    this._syncPersonalityFields = false;
   }
 
   connectedCallback() {
@@ -411,6 +410,21 @@ export class OuentoApp extends HTMLElement {
     this._setMemoryError(error == null ? '' : String(error));
     if (error == null) this.shadowRoot.getElementById('memory-dialog').close();
     else this.shadowRoot.getElementById('memory-form').elements.content.focus();
+  }
+
+  completePersonalitySave(requestId, error = null) {
+    if (requestId !== this._personalitySaveRequest || this._personalitySaveRequest === null) return;
+    this._personalitySaveRequest = null;
+    this._personalitySaveError = error == null ? '' : String(error);
+    if (error == null) {
+      const form = this.shadowRoot.getElementById('personality-form');
+      for (const field of form?.querySelectorAll('[data-dirty]') || []) delete field.dataset.dirty;
+      if (form && this.shadowRoot.activeElement?.form === form)
+        this.shadowRoot.activeElement.blur();
+      this._pageSnapshots.delete('personality');
+      this._syncPersonalityFields = true;
+    }
+    if (this._mounted) this.render();
   }
 
   _setMemorySaving(saving) {
@@ -541,7 +555,10 @@ export class OuentoApp extends HTMLElement {
       'page-eyebrow': page.eyebrow,
       'page-description': page.description,
       'heading-tag': page.tag,
-      'companion-name': state.character.name,
+      'companion-name':
+        this._page === 'character'
+          ? state.character.name
+          : state.personality.characterName || state.character.name,
       'companion-persona': `${(personas.find((item) => item.id === state.personality.preset) || personas[0]).character} 나의 동반자`,
       'character-state': state.character.loaded ? 'Live2D' : '모델 미연결',
       'audio-state': state.settings.muted
@@ -584,9 +601,12 @@ export class OuentoApp extends HTMLElement {
     this.shadowRoot.querySelector('.workarea').classList.toggle('full', !showCompanion);
     patchHTML(panel, this[`_${this._page}Page`](), {
       reset: !preserveInputs || (modelChanged && this._page === 'character'),
-      syncFields: this._syncMappingFields && this._page === 'character',
+      syncFields:
+        (this._syncMappingFields && this._page === 'character') ||
+        (this._syncPersonalityFields && this._page === 'personality'),
     });
     if (this._page === 'character') this._syncMappingFields = false;
+    if (this._page === 'personality') this._syncPersonalityFields = false;
     for (const field of panel.querySelectorAll('input[type="range"][data-dirty]'))
       this._updateRange(field);
     this._updatePersonaQuote();
@@ -608,7 +628,7 @@ export class OuentoApp extends HTMLElement {
 
   _chatPage() {
     const d = this._data;
-    return `<section class="chat-panel" aria-label="대화"><div class="chat-title"><h2>우리의 이야기</h2><span class="session-label"><span class="dot ${d.providers.chat.configured ? 'active' : ''}"></span>${d.providers.chat.configured ? '대화할 준비가 됐어요' : 'AI 연결을 기다려요'}</span></div><div class="chat-body" role="log" aria-live="polite" aria-relevant="additions text">${d.messages.length ? d.messages.map((message) => `<article class="message ${['user', 'assistant', 'system'].includes(message.role) ? message.role : 'system'}"><div class="message-meta"><span>${message.role === 'user' ? '나' : message.role === 'assistant' ? escape(d.character.name) : '안내'}</span><span>${escape(message.time || '')}</span></div><div class="message-bubble">${escape(message.content)}</div></article>`).join('') : `<div class="chat-welcome">${icon('flower', 'welcome-symbol')}<h3>별일 없어도 괜찮아요.</h3><p>오늘 있었던 일, 문득 떠오른 생각.<br>어떤 이야기든 들려주세요.</p><div class="prompt-chips"><button class="prompt-chip" data-prompt="오늘 하루는 어땠어?">오늘 하루는 어땠어?</button><button class="prompt-chip" data-prompt="잠깐 쉬어 갈까?">잠깐 쉬어 갈까?</button><button class="prompt-chip" data-prompt="나 좀 응원해 줘.">나 좀 응원해 줘</button></div>${!d.providers.chat.configured ? '<p style="margin-top:21px"><button class="text-button" data-page="settings">대화를 시작하려면 AI를 연결해 주세요 →</button></p>' : ''}</div>`}${d.busy ? '<div class="thinking" role="status"><i></i><i></i><i></i><span>이야기를 듣고 있어요</span></div>' : ''}</div><div class="composer-area"><form class="composer" id="chat-form"><textarea id="chat-text" name="text" rows="2" maxlength="8000" placeholder="오늘은 어떤 하루였나요?" aria-label="대화 메시지" aria-describedby="chat-limit" required></textarea><button class="send-button" type="submit" aria-label="메시지 보내기" ${disabled(!d.ready)}>${icon('up')}</button></form><p class="field-help" id="chat-limit">최대 4,000자까지 보낼 수 있어요.</p><div class="composer-tools"><button class="voice-button" data-do="voice-toggle" aria-pressed="${d.recording}">${icon('mic')}${d.recording ? '듣고 있어요 · 눌러서 전송' : '목소리로 이야기하기'}</button>${d.busy || d.speaking ? '<button class="cancel-button" data-do="speech-cancel">말하기 중단</button>' : '<span>Enter 보내기 · Shift + Enter 줄바꿈</span>'}</div></div></section>`;
+    return `<section class="chat-panel" aria-label="대화"><div class="chat-title"><h2>우리의 이야기</h2><span class="session-label"><span class="dot ${d.providers.chat.configured ? 'active' : ''}"></span>${d.providers.chat.configured ? '대화할 준비가 됐어요' : 'AI 연결을 기다려요'}</span></div><div class="chat-body" role="log" aria-live="polite" aria-relevant="additions text">${d.messages.length ? d.messages.map((message) => `<article class="message ${['user', 'assistant', 'system'].includes(message.role) ? message.role : 'system'}"><div class="message-meta"><span>${message.role === 'user' ? '나' : message.role === 'assistant' ? escape(d.personality.characterName || d.character.name) : '안내'}</span><span>${escape(message.time || '')}</span></div><div class="message-bubble">${escape(message.content)}</div></article>`).join('') : `<div class="chat-welcome">${icon('flower', 'welcome-symbol')}<h3>별일 없어도 괜찮아요.</h3><p>오늘 있었던 일, 문득 떠오른 생각.<br>어떤 이야기든 들려주세요.</p><div class="prompt-chips"><button class="prompt-chip" data-prompt="오늘 하루는 어땠어?">오늘 하루는 어땠어?</button><button class="prompt-chip" data-prompt="잠깐 쉬어 갈까?">잠깐 쉬어 갈까?</button><button class="prompt-chip" data-prompt="나 좀 응원해 줘.">나 좀 응원해 줘</button></div>${!d.providers.chat.configured ? '<p style="margin-top:21px"><button class="text-button" data-page="settings">대화를 시작하려면 AI를 연결해 주세요 →</button></p>' : ''}</div>`}${d.busy ? '<div class="thinking" role="status"><i></i><i></i><i></i><span>이야기를 듣고 있어요</span></div>' : ''}</div><div class="composer-area"><form class="composer" id="chat-form"><textarea id="chat-text" name="text" rows="2" maxlength="8000" placeholder="오늘은 어떤 하루였나요?" aria-label="대화 메시지" aria-describedby="chat-limit" required></textarea><button class="send-button" type="submit" aria-label="메시지 보내기" ${disabled(!d.ready)}>${icon('up')}</button></form><p class="field-help" id="chat-limit">최대 4,000자까지 보낼 수 있어요.</p><div class="composer-tools"><button class="voice-button" data-do="voice-toggle" aria-pressed="${d.recording}">${icon('mic')}${d.recording ? '듣고 있어요 · 눌러서 전송' : '목소리로 이야기하기'}</button>${d.busy || d.speaking ? '<button class="cancel-button" data-do="speech-cancel">말하기 중단</button>' : '<span>Enter 보내기 · Shift + Enter 줄바꿈</span>'}</div></div></section>`;
   }
 
   _characterPage() {
@@ -660,7 +680,32 @@ export class OuentoApp extends HTMLElement {
   _personalityPage() {
     const p = this._data.personality;
     const persona = personas.find((item) => item.id === p.preset) || personas[0];
-    return `<form id="personality-form"><div class="card"><div class="card-header"><div><h2>나와 잘 맞는 성격</h2><p>말투, 표정, 움직임의 분위기가 달라져요.</p></div></div><div class="persona-grid">${personas.map((item) => `<label class="persona-card"><input type="radio" name="preset" value="${item.id}" ${checked(p.preset === item.id)}><span class="persona-emoji" aria-hidden="true">${item.emoji}</span><strong>${item.name}</strong><small>${item.subtitle}</small></label>`).join('')}</div><div class="persona-preview"><span class="scene">같은 순간 미리보기 · 내가 시험에 합격했을 때</span><p id="persona-quote">“${escape(persona.quote)}”</p></div><button class="button" type="button" data-do="personality-preview">${icon('sound')}표정과 함께 미리보기</button>${range('intensity', '표정과 움직임의 크기', p.intensity, '차분하게', '풍부하게')}${range('frequency', '먼저 말하는 빈도', p.frequency, '가끔씩', '자주')}</div><div class="card"><h2>작은 질투 연출</h2>${toggle('jealousy', '가벼운 질투 표현', '곁눈질과 짧은 투정으로, 가끔 관심을 표현해요.', p.jealousy)}${range('jealousyIntensity', '표현 강도', p.jealousyIntensity, '아주 은근하게', '조금 더 솔직하게')}${range('jealousyFrequency', '표현 빈도', p.jealousyFrequency, '드물게', '가끔')}<p class="field-help" style="margin-top:17px">같은 장면에 반복하지 않으며, 다른 캐릭터를 보는 것을 막지 않아요.</p><div class="form-footer"><button class="button primary" type="submit">이 성격으로 함께하기</button></div></div></form>`;
+    const profile = { ...persona.profile, ...p.profile };
+    const saving = this._personalitySaveRequest !== null;
+    const textField = (name, { rows = 0, help = '', placeholder = '' } = {}) => {
+      const field = personalityFields.find((item) => item.name === name);
+      const value = name === 'characterName' ? p.characterName : profile[name];
+      const attributes = `name="${name}" maxlength="${field.limit * 2}" ${field.required ? 'required' : ''} aria-describedby="${name}-help" placeholder="${escape(placeholder)}"`;
+      return `<label class="field"><span>${field.label}</span>${rows ? `<textarea class="field-input" rows="${rows}" ${attributes}>${escape(value)}</textarea>` : `<input type="text" value="${escape(value)}" ${attributes}>`}<small class="field-help" id="${name}-help">${help ? `${help} ` : ''}최대 ${field.limit.toLocaleString('ko-KR')}자.</small></label>`;
+    };
+    return `<form id="personality-form" aria-busy="${saving}"><fieldset class="personality-fields" ${disabled(saving)}>
+      <div class="card"><div class="card-header"><div><h2>성격의 시작점</h2><p>마음에 드는 분위기를 고르고, 아래 내용을 자유롭게 다듬어 주세요.</p></div></div>
+      <div class="persona-grid">${personas.map((item) => `<label class="persona-card"><input type="radio" name="preset" value="${escape(item.id)}" ${checked(p.preset === item.id)}><span class="persona-emoji" aria-hidden="true">${escape(item.emoji)}</span><strong>${escape(item.name)}</strong><small>${escape(item.subtitle)}</small></label>`).join('')}</div>
+      <button class="button" type="button" data-do="personality-load-example">${icon('refresh')}선택한 성격 예시 불러오기</button><p class="field-help persona-template-help">선택만 바꾸면 작성한 내용은 유지돼요. 이 버튼을 누르면 호칭·관계·외형·성격·말투·대사 예시를 아래 초안에 채워요. 저장 전에는 적용되지 않아요.</p>
+      <div class="persona-preview"><span class="scene">고정 대사 미리보기 · 작업하다 잠깐 쉬는 순간</span><p id="persona-quote">“${escape(personaQuote(p.preset, profile.userAddress, p.characterName))}”</p><small>선택한 성격의 고정 예시예요. 작성한 설정으로 생성한 대사는 아니에요.</small></div>
+      <button class="button" type="button" data-do="personality-preview">${icon('sound')}예시 대사와 표정 미리보기</button></div>
+      <div class="card"><div class="card-header"><div><h2>어떤 사이로 만날까요?</h2><p>캐릭터가 스스로를 소개하고, 나를 부르는 방식을 정해요.</p></div></div>
+      <div class="form-grid">${textField('characterName', { placeholder: '예: 마오' })}${textField('userAddress', { placeholder: '예: 오빠, 언니, 선배, 이름', help: '비워 두면 정해진 호칭 없이 말해요.' })}</div>
+      ${textField('relationship', { rows: 2, placeholder: '예: 장난치기를 좋아하지만 은근히 챙겨 주는 여동생 같은 사이' })}
+      ${textField('appearance', { rows: 3, help: '캐릭터가 알고 있는 자신의 모습이에요. 실제 Live2D 모델은 캐릭터 메뉴에서 바꿔요.' })}</div>
+      <div class="card"><div class="card-header"><div><h2>말과 행동에 성격을 담아요</h2><p>어떤 마음으로 반응할지, 어떤 표현이 어울리는지 적어 주세요.</p></div></div>
+      ${textField('personalityPrompt', { rows: 7, help: '좋아하는 것·장난의 방식·다정함을 드러내는 순간을 구체적으로 적으면 좋아요.' })}
+      ${textField('speechStyle', { rows: 5, help: '말의 길이·말끝·자주 쓰거나 피할 표현을 정해요.' })}
+      ${textField('dialogueExamples', { rows: 8, help: '「상황 → 대사」로 적어 주세요. {{userAddress}}는 위에서 정한 호칭으로 바뀌어요.' })}</div>
+      <div class="card"><h2>표정과 먼저 말하는 정도</h2>${range('intensity', '표정과 움직임의 크기', p.intensity, '차분하게', '풍부하게')}${range('frequency', '먼저 말하는 빈도', p.frequency, '가끔씩', '자주')}
+      <div class="section-divider"></div><h2>작은 질투 연출</h2>${toggle('jealousy', '가벼운 질투 표현', '곁눈질과 짧은 투정으로, 가끔 관심을 표현해요.', p.jealousy)}${range('jealousyIntensity', '표현 강도', p.jealousyIntensity, '아주 은근하게', '조금 더 솔직하게')}${range('jealousyFrequency', '표현 빈도', p.jealousyFrequency, '드물게', '가끔')}<p class="field-help" style="margin-top:17px">같은 장면에 반복하지 않으며, 다른 캐릭터를 보는 것을 막지 않아요.</p>
+      <div class="notice error" id="personality-error" role="alert" ${this._personalitySaveError ? '' : 'hidden'}>${escape(this._personalitySaveError)}</div><div class="form-footer"><button class="button primary" type="submit">${saving ? '성격 저장 중…' : '이 성격으로 함께하기'}</button></div></div>
+      </fieldset></form>`;
   }
 
   _observePage() {
@@ -830,12 +875,33 @@ export class OuentoApp extends HTMLElement {
             .checked,
         });
         break;
-      case 'personality-preview':
+      case 'personality-load-example': {
+        const form = this.shadowRoot.getElementById('personality-form');
+        if (this._personalitySaveRequest !== null) break;
+        const preset = form.querySelector('[name="preset"]:checked')?.value;
+        const persona = personas.find((item) => item.id === preset) || personas[0];
+        for (const [name, value] of Object.entries(persona.profile)) {
+          const field = form.elements[name];
+          field.value = value;
+          field.dataset.dirty = 'true';
+        }
+        this._updatePersonaQuote();
+        this.notify('선택한 성격의 예시를 초안에 채웠어요. 다듬은 뒤 저장해 주세요.', 'info');
+        break;
+      }
+      case 'personality-preview': {
+        const form = this.shadowRoot.getElementById('personality-form');
+        const data = new FormData(form);
+        const preset = String(data.get('preset') || 'tsundere');
+        const userAddress = String(data.get('userAddress') || '').trim();
         this._emit(action, {
-          preset: new FormData(this.shadowRoot.getElementById('personality-form')).get('preset'),
-          scene: 'exam-pass',
+          preset,
+          userAddress,
+          text: personaQuote(preset, userAddress, String(data.get('characterName') || '')),
+          scene: 'taking-a-break',
         });
         break;
+      }
       case 'provider-remove-key':
         this._emit(action, { kind: button.dataset.kind });
         break;
@@ -862,6 +928,7 @@ export class OuentoApp extends HTMLElement {
     const field = event.target;
     if (field.matches('input,select,textarea')) field.dataset.dirty = 'true';
     if (field.type === 'range') this._updateRange(field);
+    if (['userAddress', 'characterName'].includes(field.name)) this._updatePersonaQuote();
     if (field.name === 'mouthOpenness')
       this._emit('mouth-preview', { openness: Number(field.value) });
   }
@@ -869,7 +936,11 @@ export class OuentoApp extends HTMLElement {
   _onChange(event) {
     const field = event.target;
     if (field.matches('input,select,textarea')) field.dataset.dirty = 'true';
-    if (field.name === 'preset') this._updatePersonaQuote();
+    if (field.name === 'preset') {
+      for (const radio of field.form.querySelectorAll('[name="preset"]'))
+        radio.dataset.dirty = 'true';
+      this._updatePersonaQuote();
+    }
     if (field.name === 'mode') this._updateObservationScope();
     if (field.form?.getAttribute('id') === 'mapping-form')
       this._emit('model-mapping-preview', { mapping: this._mappingValues(field.form) });
@@ -898,9 +969,13 @@ export class OuentoApp extends HTMLElement {
 
   _updatePersonaQuote() {
     const quote = this.shadowRoot.getElementById('persona-quote');
-    const choice = this.shadowRoot.querySelector('[name="preset"]:checked')?.value;
+    const form = this.shadowRoot.getElementById('personality-form');
+    const choice = form?.querySelector('[name="preset"]:checked')?.value;
     if (quote && choice)
-      setText(quote, `“${personas.find((persona) => persona.id === choice)?.quote || ''}”`);
+      setText(
+        quote,
+        `“${personaQuote(choice, form.elements.userAddress.value, form.elements.characterName.value)}”`,
+      );
   }
 
   _onSubmit(event) {
@@ -929,11 +1004,33 @@ export class OuentoApp extends HTMLElement {
         this.shadowRoot.getElementById('chat-text')?.focus();
         break;
       }
-      case 'personality-form':
-        clearDirty();
+      case 'personality-form': {
+        if (this._personalitySaveRequest !== null) return;
+        for (const field of personalityFields) {
+          const length = Array.from(value(field.name)).length;
+          if ((field.required && length === 0) || length > field.limit) {
+            this.notify(
+              `${field.label}: ${field.required ? '1~' : '최대 '}${field.limit.toLocaleString('ko-KR')}자로 입력해 주세요.`,
+              'error',
+            );
+            form.elements[field.name].focus();
+            return;
+          }
+        }
+        const requestId = ++this._personalitySaveSequence;
+        this._personalitySaveRequest = requestId;
+        this._personalitySaveError = '';
+        if (this._mounted) this.render();
         this._emit('personality-save', {
+          requestId,
           personality: {
             preset: value('preset'),
+            characterName: value('characterName'),
+            profile: Object.fromEntries(
+              personalityFields
+                .filter((field) => field.name !== 'characterName')
+                .map((field) => [field.name, value(field.name)]),
+            ),
             intensity: number('intensity'),
             frequency: number('frequency'),
             jealousy: has('jealousy'),
@@ -942,6 +1039,7 @@ export class OuentoApp extends HTMLElement {
           },
         });
         break;
+      }
       case 'observation-form': {
         const observation = {
           mode: value('mode'),

@@ -25,8 +25,10 @@ let failSwitch = false;
 let deferMetadata = false;
 let resolveMetadata;
 let memoryWrite;
+let personalityWrite;
 let failSnapshot = false;
 const memoryCompletions = [];
+const personalityCompletions = [];
 const notifications = [];
 const merge = (base, patch) => {
   const value = { ...base };
@@ -51,6 +53,9 @@ const app = {
   },
   completeMemorySave(...args) {
     memoryCompletions.push(args);
+  },
+  completePersonalitySave(...args) {
+    personalityCompletions.push(args);
   },
   openImport() {
     this.importOpen = true;
@@ -106,6 +111,11 @@ const call = async (name, args = {}) => {
     const memory = { ...args.input, id: args.input.id ?? `memory${saved.memories.length}` };
     saved.memories.push(memory);
     return memory;
+  }
+  if (name === 'save_settings') {
+    await personalityWrite;
+    saved.settings = { ...saved.settings, ...structuredClone(args.patch) };
+    return structuredClone(saved.settings);
   }
   if (name === 'cancel_speech' || name === 'discard_import') return;
   if (name === 'inspect_model')
@@ -344,6 +354,74 @@ await action({ ...draft, requestId: 4 });
 assert.equal(memoryCompletions.at(-1)[0], 4);
 assert.match(memoryCompletions.at(-1)[1], /데스크톱 앱/);
 assert.equal(saved.memories.length, countBeforeFailure + 1);
+
+// Personality drafts commit only after native persistence and preserve other settings.
+sandbox.native = true;
+const profile = {
+  userAddress: '선배',
+  relationship: '장난을 치는 친구',
+  appearance: '짧은 은빛 머리',
+  personalityPrompt: '장난을 좋아하지만 힘들 때는 다정하게 챙긴다.',
+  speechStyle: '짧은 반말',
+  dialogueExamples: '쉬자고 하면: 잠깐 같이 쉬자!',
+};
+const personalityDraft = {
+  type: 'personality-save',
+  requestId: 11,
+  personality: {
+    preset: 'tsundere',
+    characterName: '루나',
+    profile,
+    intensity: 0.7,
+    frequency: 0.4,
+    jealousy: false,
+    jealousyIntensity: 0.3,
+    jealousyFrequency: 0.2,
+  },
+};
+const previousSettings = structuredClone(saved.settings);
+const previousMemories = structuredClone(saved.memories);
+personalityWrite = new Promise((resolve) => {
+  resolveWrite = resolve;
+});
+const pendingPersonality = action(personalityDraft);
+assert.equal(personalityCompletions.length, 0, 'draft remains pending until settings commit');
+assert.deepEqual(saved.settings, previousSettings);
+const settingsRequest = operations.findLast(([name]) => name === 'save_settings')[1];
+assert.ok(
+  !('settings' in settingsRequest),
+  'must send only intended changes, no stale full snapshot',
+);
+assert.ok(!('quiet' in settingsRequest.patch));
+saved.settings.quiet = true; // Another window commits an independent preference first.
+resolveWrite();
+await pendingPersonality;
+assert.deepEqual(personalityCompletions.pop(), [11]);
+assert.deepEqual(saved.settings.characterProfile, profile);
+assert.equal(saved.settings.quiet, true);
+assert.equal(saved.settings.characterName, '루나');
+assert.deepEqual(saved.settings.providers, previousSettings.providers);
+assert.deepEqual(saved.settings.observation, previousSettings.observation);
+assert.equal(saved.settings.activeModelId, previousSettings.activeModelId);
+assert.deepEqual(saved.memories, previousMemories);
+assert.equal(run('snapshot.settings.characterProfile.userAddress'), '선배');
+
+personalityWrite = Promise.reject(new Error('settings unavailable'));
+await action({ ...personalityDraft, requestId: 12 });
+assert.deepEqual(personalityCompletions.pop(), [12, 'Error: settings unavailable']);
+
+// A committed settings write uses its authoritative response, no fallible refresh.
+personalityWrite = Promise.resolve();
+operations.length = 0;
+await action({ ...personalityDraft, requestId: 13 });
+assert.deepEqual(personalityCompletions.splice(0), [[13]]);
+assert.ok(!operations.some(([name]) => name === 'snapshot'));
+assert.equal(notifications.at(-1), '성격을 저장했어요.');
+
+sandbox.native = false;
+await action({ ...personalityDraft, requestId: 14 });
+assert.equal(personalityCompletions.at(-1)[0], 14);
+assert.match(personalityCompletions.at(-1)[1], /데스크톱 앱/);
 console.log(
-  'model preview/memory controller: 14 import, preview, commit, cancellation, failure and memory write scenarios passed',
+  'model preview/memory/personality controller: 18 import, preview, commit, cancellation and draft persistence scenarios passed',
 );
