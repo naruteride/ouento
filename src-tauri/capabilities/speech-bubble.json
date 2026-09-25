@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "speech-bubble",
+  "description": "Display and synchronize the local speech caption",
+  "windows": ["speech-bubble"],
+  "permissions": ["core:default"]
+}

@@ -11,9 +11,9 @@ root.innerHTML = `
   <style>
     ${speechBubbleStyles}
     #stage { position:absolute; inset:85px 0 28px; }
-    #bubble { position:absolute; z-index:2; top:6px; left:32px; right:32px; background:#fffdf4f2;
-      border:1px solid #d6cedf; border-radius:20px; padding:15px 18px; font-size:14px;
-      line-height:1.6; box-shadow:0 4px 22px #3b2d5212; display:none; }
+    #bubble-anchor { position:absolute; z-index:2; top:6px; left:0; right:0;
+      display:flex; justify-content:center; pointer-events:none; }
+    #bubble { max-width:min(300px,calc(100vw - 48px)); display:none; }
     #actions { position:absolute; bottom:9px; left:50%; transform:translateX(-50%);
       display:flex; gap:5px; background:#fffdf5ed; border:1px solid #ded8e4;
       border-radius:20px; padding:5px; }
@@ -23,7 +23,7 @@ root.innerHTML = `
     #status { position:absolute; top:75px; left:50%; transform:translateX(-50%);
       font-size:10px; background:#fffdf5dc; padding:3px 8px; border-radius:10px; white-space:nowrap; }
   </style>
-  <div id="bubble" class="speech-bubble" role="status"></div>
+  <div id="bubble-anchor"><div id="bubble" class="speech-bubble" role="status"></div></div>
   <div id="status">관찰 안 함</div>
   <div id="stage"></div>
   <div id="actions">
@@ -35,7 +35,19 @@ root.innerHTML = `
 
 const stage = document.querySelector('#stage');
 const bubble = document.querySelector('#bubble');
-const speechBubble = new SpeechBubble(bubble, { setTimeout, clearTimeout });
+// A renderer reload must not restart below the native window's last revision.
+let bubbleRevision = Date.now() * 1000;
+// The companion owns caption lifetime; the separate native surface can stay
+// onscreen even when the character window has been dragged beyond its edges.
+if (native) bubble.style.visibility = 'hidden';
+const speechBubble = new SpeechBubble(bubble, { setTimeout, clearTimeout }, (state) => {
+  if (native)
+    call('update_speech_bubble', { ...state, revision: ++bubbleRevision }).catch((error) =>
+      console.warn('말풍선 표시 실패:', error),
+    );
+});
+// beforeunload IPC can be lost; clear any caption owned by the previous page.
+if (native) speechBubble.hide(true);
 const status = document.querySelector('#status');
 const unlisteners = [];
 let renderer;
@@ -238,6 +250,7 @@ function hit(point) {
   const actions = point.y > point.height - 48 && point.x > 28 && point.x < point.width - 28;
   const bubbleRect = bubble.getBoundingClientRect();
   const speech =
+    !native &&
     bubble.style.display !== 'none' &&
     point.x >= bubbleRect.left &&
     point.x <= bubbleRect.right &&

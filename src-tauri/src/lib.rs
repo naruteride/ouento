@@ -4,6 +4,7 @@ pub mod model_metadata;
 pub mod models;
 pub mod platform;
 pub mod providers;
+mod speech_bubble;
 pub mod storage;
 
 use domain::{
@@ -31,6 +32,7 @@ struct AppState {
     backend: Arc<Backend>,
     models: ModelStore,
     desktop: desktop::DesktopLayout,
+    speech_bubble: speech_bubble::SpeechBubble,
     observation_visible: AtomicBool,
     screen_locked: AtomicBool,
     dragging: AtomicBool,
@@ -105,6 +107,11 @@ fn save_settings(
         if !state.dragging.load(Ordering::Relaxed) {
             state.desktop.reconcile(&window, settings.scale)?;
         }
+    }
+    if let Some(window) = app.get_webview_window("speech-bubble") {
+        window
+            .set_always_on_top(settings.always_on_top)
+            .map_err(|e| e.to_string())?;
     }
     app.emit("settings-changed", &settings)
         .map_err(|e| e.to_string())?;
@@ -619,6 +626,69 @@ fn is_companion_visible(app: tauri::AppHandle) -> Result<bool, String> {
         None => Ok(false),
     }
 }
+fn speech_bubble_active(app: &tauri::AppHandle, state: &AppState) -> bool {
+    !state.screen_locked.load(Ordering::Relaxed)
+        && app.get_webview_window("companion").is_some_and(|window| {
+            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
+        })
+}
+// These commands share geometry state with the cursor worker. Run off the UI
+// thread so waiting for that mutex cannot block native window-query replies.
+#[tauri::command(async)]
+fn update_speech_bubble(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    app_state: State<AppState>,
+    revision: u64,
+    text: String,
+    state: speech_bubble::Phase,
+) -> Result<(), String> {
+    if window.label() != "companion" {
+        return Err("캐릭터 창에서만 말풍선을 변경할 수 있습니다.".into());
+    }
+    app_state.speech_bubble.update(
+        &app,
+        revision,
+        text,
+        state,
+        speech_bubble_active(&app, &app_state),
+    )
+}
+#[tauri::command(async)]
+fn speech_bubble_ready(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<AppState>,
+) -> Result<speech_bubble::Snapshot, String> {
+    if window.label() != "speech-bubble" {
+        return Err("말풍선 창에서만 표시 상태를 읽을 수 있습니다.".into());
+    }
+    state
+        .speech_bubble
+        .ready(&app, speech_bubble_active(&app, &state))
+}
+#[tauri::command(async)]
+fn layout_speech_bubble(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<AppState>,
+    revision: u64,
+    layout_revision: u64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if window.label() != "speech-bubble" {
+        return Err("말풍선 창에서만 표시 크기를 변경할 수 있습니다.".into());
+    }
+    state.speech_bubble.layout(
+        &app,
+        revision,
+        layout_revision,
+        width,
+        height,
+        speech_bubble_active(&app, &state),
+    )
+}
 #[tauri::command]
 fn show_settings(app: tauri::AppHandle) -> Result<(), String> {
     let w = app
@@ -749,6 +819,7 @@ fn start_platform_loop(handle: tauri::AppHandle) {
                     }
                 }
             }
+            let _ = state.speech_bubble.reconcile(&handle, active);
             // No 30 Hz cursor IPC or wakeups while hidden/locked. Activity is
             // still sampled so showing/unlocking can restart the renderer.
             std::thread::sleep(Duration::from_millis(if active { 33 } else { 250 }));
@@ -780,6 +851,7 @@ pub fn run() {
                 backend,
                 models,
                 desktop,
+                speech_bubble: speech_bubble::SpeechBubble::default(),
                 observation_visible: AtomicBool::new(false),
                 screen_locked: AtomicBool::new(true),
                 dragging: AtomicBool::new(false),
@@ -847,6 +919,17 @@ pub fn run() {
                     .reconcile(&w, settings.scale)
                     .map_err(std::io::Error::other)?;
             }
+            if let Some(w) = app.get_webview_window("speech-bubble") {
+                w.set_focusable(false)?;
+                w.set_ignore_cursor_events(true)?;
+                w.set_always_on_top(
+                    app.state::<AppState>()
+                        .backend
+                        .settings()
+                        .map_err(std::io::Error::other)?
+                        .always_on_top,
+                )?;
+            }
             start_platform_loop(app.handle().clone());
             Ok(())
         })
@@ -855,6 +938,9 @@ pub fn run() {
                 // Keep the native window available for the tray and companion menu.
                 api.prevent_close();
                 if window.hide().is_ok() && window.label() == "companion" {
+                    if let Some(bubble) = window.app_handle().get_webview_window("speech-bubble") {
+                        let _ = bubble.hide();
+                    }
                     let _ = window
                         .app_handle()
                         .emit("companion-visibility", json!({"visible":false}));
@@ -892,6 +978,9 @@ pub fn run() {
             analyze_window,
             show_companion,
             is_companion_visible,
+            update_speech_bubble,
+            speech_bubble_ready,
+            layout_speech_bubble,
             show_settings,
             set_interactive,
             start_character_drag

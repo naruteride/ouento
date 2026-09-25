@@ -9,6 +9,10 @@ export function speechBubbleDuration(text) {
 
 export const speechBubbleStyles = `
   .speech-bubble {
+    box-sizing:border-box; width:max-content; max-width:300px;
+    border:1px solid #d6cedfa6; border-radius:16px; padding:10px 14px;
+    background:rgba(255,253,244,.82); color:#302b40;
+    font:13px/1.5 system-ui; box-shadow:0 3px 10px #3b2d5214;
     opacity:0; transform:translateY(8px);
     transition:opacity ${EXIT_MS}ms ease-in, transform ${EXIT_MS}ms ease-in;
     white-space:pre-wrap; overflow-wrap:anywhere;
@@ -24,10 +28,11 @@ export const speechBubbleStyles = `
 
 /** Keeps delayed expiry/exit callbacks from dismissing a newer caption. */
 export class SpeechBubble {
-  constructor(element, timers = { setTimeout, clearTimeout }) {
+  constructor(element, timers = { setTimeout, clearTimeout }, onChange = null) {
     this.element = element;
     this.timers = timers;
     this.generation = 0;
+    this.onChange = onChange;
     this.element.style.display = 'none';
     this.element.dataset.state = 'hidden';
   }
@@ -54,6 +59,7 @@ export class SpeechBubble {
     // fading caption reverses smoothly from its current opacity and position.
     this.element.dataset.state = 'visible';
     if (!hold) this.scheduleDismissal();
+    this.notify();
   }
 
   scheduleDismissal() {
@@ -75,12 +81,18 @@ export class SpeechBubble {
       this.element.dataset.state = 'hidden';
       this.element.style.display = 'none';
       this.element.textContent = '';
+      this.notify();
     };
     if (immediate) finish();
     else {
       const { setTimeout } = this.timers;
       this.element.dataset.state = 'hiding';
+      this.notify();
       this.exitTimer = setTimeout(finish, EXIT_MS);
     }
+  }
+
+  notify() {
+    this.onChange?.({ state: this.element.dataset.state, text: this.element.textContent });
   }
 }

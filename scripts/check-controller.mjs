@@ -26,6 +26,7 @@ let nextTimer = 0;
 const timers = new Map();
 const reacts = [];
 const plays = [];
+const nativeBubbleUpdates = [];
 let cancels = 0;
 const sandbox = {
   console,
@@ -47,6 +48,10 @@ const sandbox = {
   on: async () => () => {},
   modelSource: async () => ({}),
   call: async (name, args) => {
+    if (name === 'update_speech_bubble') {
+      nativeBubbleUpdates.push(structuredClone(args));
+      return;
+    }
     if (name === 'validate_utterance')
       return new Promise((resolve) => validations.push({ id: args.utteranceId, resolve }));
     if (name === 'snapshot') return { models: [], settings: { observation: { mode: 'off' } } };
@@ -381,6 +386,38 @@ run('cancelReaction()');
 finishTimer(400);
 assert.equal(node('#bubble').style.display, 'none');
 assert.equal(timers.size, 0);
+
+// Native surfaces mirror each phase; the companion retains the sole reading timer.
+const nativeUpdatesBefore = nativeBubbleUpdates.length;
+pending = reaction('native-caption');
+resolve('native-caption');
+await pending;
+assert.equal(nativeBubbleUpdates.at(-1).state, 'visible');
+assert.equal(nativeBubbleUpdates.at(-1).text, 'native-caption');
+run("playbackChanged({speaking:true,utteranceId:'native-caption'})");
+run("playbackChanged({speaking:false,paused:true,utteranceId:'native-caption'})");
+assert.equal(timers.size, 0, 'native mirroring cannot create a second caption TTL');
+assert.equal(nativeBubbleUpdates.at(-1).state, 'visible');
+run('playbackChanged({speaking:false})');
+assert.equal(timers.size, 1);
+finishTimer(speechBubbleDuration('native-caption'));
+assert.equal(nativeBubbleUpdates.at(-1).state, 'hiding');
+finishTimer(400);
+assert.equal(nativeBubbleUpdates.at(-1).state, 'hidden');
+assert.equal(nativeBubbleUpdates.at(-1).text, '');
+assert.deepEqual(
+  nativeBubbleUpdates.slice(nativeUpdatesBefore).map((update) => update.state),
+  ['visible', 'visible', 'visible', 'hiding', 'hidden'],
+);
+assert.ok(
+  nativeBubbleUpdates.every(
+    (update, index) =>
+      Number.isSafeInteger(update.revision) &&
+      update.revision > 0 &&
+      (index === 0 || update.revision > nativeBubbleUpdates[index - 1].revision),
+  ),
+);
+assert.equal(timers.size, 0);
 console.log(
-  'companion controller: 23 deferred-event, preview, caption timing, visibility, unknown-activity, manual-observation, native-denial, scoped invalidation scenarios passed',
+  'companion controller: 24 deferred-event, preview, native caption lifecycle, caption timing, visibility, unknown-activity, manual-observation, native-denial, scoped invalidation scenarios passed',
 );

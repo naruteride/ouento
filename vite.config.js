@@ -12,6 +12,12 @@ export default defineConfig({
   server: { port: 1420, strictPort: true, watch: { ignored: ['**/src-tauri/**'] } },
   build: {
     target: ['es2022', 'chrome105', 'safari15'],
-    rollupOptions: { input: { main: 'index.html', companion: 'companion.html' } },
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        companion: 'companion.html',
+        speechBubble: 'speech-bubble.html',
+      },
+    },
   },
 });
