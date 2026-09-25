@@ -2,11 +2,13 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import { SpeechBubble, speechBubbleDuration, speechBubbleStyles } from '../src/ui/speech-bubble.js';
 const nodes = new Map();
 function node(id) {
   if (!nodes.has(id))
     nodes.set(id, {
       style: { display: 'none' },
+      dataset: {},
       textContent: '',
       listeners: new Map(),
       addEventListener(type, fn) {
@@ -27,9 +29,9 @@ const plays = [];
 let cancels = 0;
 const sandbox = {
   console,
-  setTimeout(fn) {
+  setTimeout(fn, delay) {
     const id = ++nextTimer;
-    timers.set(id, fn);
+    timers.set(id, { fn, delay });
     return id;
   },
   clearTimeout(id) {
@@ -38,6 +40,9 @@ const sandbox = {
   document: { documentElement: { style: {} }, body: { style: {} }, querySelector: node },
   window: { addEventListener() {} },
   native: true,
+  SpeechBubble,
+  speechBubbleDuration,
+  speechBubbleStyles,
   toMain: async () => {},
   on: async () => () => {},
   modelSource: async () => ({}),
@@ -83,7 +88,7 @@ let source = fs.readFileSync(new URL('../src/companion.js', import.meta.url), 'u
 const importPattern = /^import[\s\S]*?;\n/gm;
 assert.equal(
   [...source.matchAll(importPattern)].length,
-  3,
+  4,
   'companion import 경계가 변경되었습니다. 진단을 갱신하세요.',
 );
 source = source.replace(importPattern, '');
@@ -100,6 +105,13 @@ vm.runInContext(
   sandbox,
 );
 const run = (code) => vm.runInContext(code, sandbox);
+const finishTimer = (delay) => {
+  const entry = [...timers.entries()].find(([, timer]) => timer.delay === delay);
+  assert.ok(entry, `missing ${delay}ms timer`);
+  const [id, timer] = entry;
+  timers.delete(id);
+  timer.fn();
+};
 const tick = async () => {
   for (let i = 0; i < 6; i++) await Promise.resolve();
 };
@@ -154,6 +166,12 @@ assert.deepEqual(plays, ['paired']);
 assert.equal(node('#bubble').style.display, 'block');
 assert.equal(node('#bubble').textContent, 'paired');
 assert.equal(timers.size, 0, 'caption must stay while speaking');
+// Audio suspension retains the current caption just like active playback.
+run("playbackChanged({speaking:false,paused:true,utteranceId:'paired'})");
+assert.equal(node('#bubble').dataset.state, 'visible');
+assert.equal(timers.size, 0, 'paused audio must not start a caption expiry timer');
+run("playbackChanged({speaking:true,utteranceId:'paired'})");
+assert.equal(timers.size, 0);
 // Preview while audio is playing keeps its identity and session.
 await run("handleReaction({reaction:{emotion:'calm'}})");
 assert.equal(run('player.session.id'), 'paired');
@@ -161,6 +179,12 @@ assert.equal(run('player.session.id'), 'paired');
 run('visible=false;updateVisibility()');
 assert.equal(run('player.session'), null);
 assert.equal(run('renderer.paused'), true);
+assert.equal(
+  node('#bubble').style.display,
+  'none',
+  'a hidden window clears the caption immediately',
+);
+assert.equal(timers.size, 0);
 run('locked=true;visible=true;updateVisibility()');
 assert.equal(run('renderer.paused'), true);
 run('locked=false;updateVisibility()');
@@ -220,6 +244,8 @@ resolve('text-denied', false);
 await pending;
 assert.equal(run('activeUtterance'), null);
 assert.equal(reacts.length, beforeDenied);
+assert.equal(node('#bubble').dataset.state, 'hiding');
+finishTimer(400);
 assert.equal(node('#bubble').style.display, 'none');
 
 // An asynchronous false in handleSpeech never reaches the player's play method.
@@ -262,6 +288,8 @@ run("invalidateObservation({utteranceId:'previous-observation'})");
 assert.equal(run('player.session.id'), 'newer-accepted');
 run("invalidateObservation({utteranceId:'newer-accepted'})");
 assert.equal(run('player.session'), null);
+assert.equal(node('#bubble').dataset.state, 'hiding');
+finishTimer(400);
 assert.equal(node('#bubble').style.display, 'none');
 
 // A pending observation validation cannot revive after its scoped invalidation.
@@ -307,6 +335,52 @@ assert.equal(run('activeUtterance'), null);
 assert.equal(run('renderer.paused'), true);
 run('handleActivity({typing:null,locked:false})');
 assert.equal(run('renderer.paused'), false);
+
+// A long spoken response remains during playback and gets its full reading time at the end.
+const longText = '가'.repeat(180);
+pending = run(
+  `handleReaction({utteranceId:'long-caption',origin:'direct',reaction:{emotion:'calm',text:${JSON.stringify(longText)}}})`,
+);
+resolve('long-caption');
+await pending;
+assert.equal([...timers.values()].at(-1).delay, speechBubbleDuration(longText));
+pending = run("handleSpeech({utteranceId:'long-caption',audioBase64:''})");
+resolve('long-caption');
+await tick();
+resolve('long-caption');
+await pending;
+assert.equal(timers.size, 0);
+run('player.cancel()');
+assert.equal(node('#bubble').textContent, longText);
+assert.equal(node('#bubble').dataset.state, 'visible');
+assert.equal(timers.size, 1);
+assert.equal([...timers.values()][0].delay, 20000);
+finishTimer(20000);
+assert.equal(node('#bubble').dataset.state, 'hiding');
+finishTimer(400);
+assert.equal(node('#bubble').style.display, 'none');
+
+// A superseded fade callback and an old TTS message cannot hide or revive a new response.
+pending = reaction('fade-old');
+resolve('fade-old');
+await pending;
+run('cancelReaction()');
+const staleFade = [...timers.values()].find((timer) => timer.delay === 400)?.fn;
+assert.ok(staleFade);
+pending = reaction('fade-new');
+resolve('fade-new');
+await pending;
+staleFade();
+assert.equal(node('#bubble').dataset.state, 'visible');
+assert.equal(node('#bubble').textContent, 'fade-new');
+const playsBeforeStaleTts = plays.length;
+await run("handleSpeech({utteranceId:'fade-old',audioBase64:''})");
+assert.equal(plays.length, playsBeforeStaleTts);
+assert.equal(node('#bubble').textContent, 'fade-new');
+run('cancelReaction()');
+finishTimer(400);
+assert.equal(node('#bubble').style.display, 'none');
+assert.equal(timers.size, 0);
 console.log(
-  'companion controller: 20 deferred-event, preview, caption, visibility, unknown-activity, manual-observation, native-denial, scoped invalidation scenarios passed',
+  'companion controller: 23 deferred-event, preview, caption timing, visibility, unknown-activity, manual-observation, native-denial, scoped invalidation scenarios passed',
 );

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ouento 말풍선 전환 검사</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f5f1;
+        color: #302b40;
+        font: 14px/1.65 system-ui;
+      }
+      main {
+        max-width: 840px;
+        margin: 32px auto;
+        padding: 0 24px;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      button {
+        padding: 9px 14px;
+        border: 1px solid #d6cedf;
+        border-radius: 8px;
+        background: white;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      #stage {
+        min-height: 390px;
+        margin-top: 24px;
+        padding: 24px;
+        border: 1px dashed #c6bfca;
+        border-radius: 12px;
+        background: #eeece6;
+      }
+      #bubble {
+        max-width: 356px;
+        margin: 0 auto;
+        border: 1px solid #d6cedf;
+        border-radius: 20px;
+        padding: 15px 18px;
+        background: #fffdf4f2;
+        box-shadow: 0 4px 22px #3b2d5212;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      #status {
+        font-weight: 600;
+      }
+      #status[data-passed='true'] {
+        color: #276540;
+      }
+      #status[data-passed='false'] {
+        color: #a02626;
+      }
+      pre {
+        padding: 16px;
+        border-radius: 10px;
+        background: white;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>개발 전용 · 실제 말풍선 전환</h1>
+      <p>
+        제품의 말풍선 코드와 CSS를 그대로 사용합니다. 짧은 대사는 9초, 긴 대사는 20초 유지합니다.
+        합성 문장만 표시하며 네트워크·AI는 사용하지 않습니다.
+      </p>
+      <div class="buttons">
+        <button id="short" type="button">짧은 대사 표시</button>
+        <button id="long" type="button">긴 대사 표시 · 180자</button>
+        <button id="hide" type="button">숨기기</button>
+        <button id="verify" type="button">애니메이션 검증</button>
+      </div>
+      <p id="status" role="status">검증 버튼을 누르고 이 탭을 보이는 상태로 유지해 주세요.</p>
+      <div id="stage"><div id="bubble" class="speech-bubble" role="status"></div></div>
+      <p>
+        검증은 실제 시간의 프레임에서 불투명도와 세로 이동량을 측정합니다. 운영체제의 동작 줄이기
+        설정이 켜져 있으면 이동 없이 페이드만 확인합니다.
+      </p>
+      <pre id="report" aria-label="말풍선 전환 검사 결과">아직 검사하지 않았습니다.</pre>
+    </main>
+    <script type="module" src="./speech-bubble.js"></script>
+  </body>
+</html>

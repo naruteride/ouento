@@ -1,6 +1,7 @@
 import { CharacterRenderer } from './character/renderer';
 import { SpeechPlayer } from './audio/player.js';
 import { native, call, on, toMain, modelSource } from './bridge/api.js';
+import { SpeechBubble, speechBubbleStyles } from './ui/speech-bubble.js';
 
 document.documentElement.style.cssText = 'background:transparent;overflow:hidden;';
 document.body.style.cssText =
@@ -8,8 +9,9 @@ document.body.style.cssText =
 const root = document.querySelector('#companion');
 root.innerHTML = `
   <style>
+    ${speechBubbleStyles}
     #stage { position:absolute; inset:85px 0 28px; }
-    #bubble { position:absolute; top:6px; left:32px; right:32px; background:#fffdf4f2;
+    #bubble { position:absolute; z-index:2; top:6px; left:32px; right:32px; background:#fffdf4f2;
       border:1px solid #d6cedf; border-radius:20px; padding:15px 18px; font-size:14px;
       line-height:1.6; box-shadow:0 4px 22px #3b2d5212; display:none; }
     #actions { position:absolute; bottom:9px; left:50%; transform:translateX(-50%);
@@ -21,7 +23,7 @@ root.innerHTML = `
     #status { position:absolute; top:75px; left:50%; transform:translateX(-50%);
       font-size:10px; background:#fffdf5dc; padding:3px 8px; border-radius:10px; white-space:nowrap; }
   </style>
-  <div id="bubble" role="status"></div>
+  <div id="bubble" class="speech-bubble" role="status"></div>
   <div id="status">관찰 안 함</div>
   <div id="stage"></div>
   <div id="actions">
@@ -33,6 +35,7 @@ root.innerHTML = `
 
 const stage = document.querySelector('#stage');
 const bubble = document.querySelector('#bubble');
+const speechBubble = new SpeechBubble(bubble, { setTimeout, clearTimeout });
 const status = document.querySelector('#status');
 const unlisteners = [];
 let renderer;
@@ -41,7 +44,6 @@ let snapshot;
 let loadedId;
 let loadingId;
 let interactive = false;
-let bubbleTimer;
 let modelGeneration = 0;
 let reactionGeneration = 0;
 let speechGeneration = 0;
@@ -56,15 +58,7 @@ let closed = false;
 let down;
 
 function say(text, hold = false) {
-  bubble.textContent = text;
-  bubble.style.display = 'block';
-  clearTimeout(bubbleTimer);
-  if (!hold) bubbleTimer = setTimeout(hideBubble, 9000);
-}
-
-function hideBubble() {
-  clearTimeout(bubbleTimer);
-  bubble.style.display = 'none';
+  speechBubble.show(text, hold);
 }
 
 function stopPlayback() {
@@ -75,7 +69,7 @@ function stopPlayback() {
   pendingReaction = null;
   pendingSpeech = null;
   player?.cancel();
-  hideBubble();
+  speechBubble.hide(locked || !visible || closed);
 }
 
 function cancelReaction() {
@@ -90,12 +84,12 @@ function handleActivity(activity) {
 }
 
 function playbackChanged(state) {
-  // TTS 준비에 9초 이상 걸려도 실제 재생 시작에 자막을 다시 보인다.
-  if (state.speaking && state.utteranceId === activeUtterance && activeText) {
+  // Hold the caption throughout playback, including audio pauses. Delayed TTS
+  // can restore a caption that already expired while preparing the audio.
+  if ((state.speaking || state.paused) && state.utteranceId === activeUtterance && activeText) {
     say(activeText, true);
   } else if (!state.speaking && activeUtterance && activeText) {
-    clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(hideBubble, 9000);
+    speechBubble.scheduleDismissal();
   }
   toMain('playback-state', state).catch(() => {});
 }
@@ -242,8 +236,13 @@ function hit(point) {
   const y = (point.y - rect.top) / rect.height;
   const character = renderer.hitTest(x * 2 - 1, 1 - y * 2);
   const actions = point.y > point.height - 48 && point.x > 28 && point.x < point.width - 28;
+  const bubbleRect = bubble.getBoundingClientRect();
   const speech =
-    bubble.style.display !== 'none' && point.y < 85 && point.x > 30 && point.x < point.width - 30;
+    bubble.style.display !== 'none' &&
+    point.x >= bubbleRect.left &&
+    point.x <= bubbleRect.right &&
+    point.y >= bubbleRect.top &&
+    point.y <= bubbleRect.bottom;
   return character || actions || speech;
 }
 
