@@ -293,8 +293,8 @@ impl ObservationGate {
         }
         Ok(())
     }
-    /// The response already passed the analysis freshness deadline. Keep its
-    /// authorization through playback without imposing that deadline on audio duration.
+    /// A pending analysis must still own the latest capture ticket. Published
+    /// captions use validate_response_scope instead of this capture generation.
     pub fn validate_current_scope(
         &self,
         settings: &Settings,
@@ -686,9 +686,9 @@ mod tests {
             .begin_for(&settings, target, "", ObservationPurpose::OnDemand, 1000)
             .unwrap();
         assert!(gate.validate_scope(&settings, &ticket, 32_000).is_err());
-        assert!(gate.validate_current_scope(&settings, &ticket).is_ok());
+        assert!(gate.validate_response_scope(&settings, &ticket).is_ok());
         gate.set_visible(false);
-        assert!(gate.validate_current_scope(&settings, &ticket).is_err());
+        assert!(gate.validate_response_scope(&settings, &ticket).is_err());
     }
 
     #[test]
