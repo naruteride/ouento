@@ -66,7 +66,7 @@
 - 실제 IPC는 창 열거·안정화 대기 **전** `prepare_observation(purpose)`로 취소 토큰을 잡고, `begin_prepared_observation(&preparation, target, fingerprint)`로 티켓을 발급한다. 취소·새 직접 요청·교체 요청·관찰 중지 후 늦게 끝난 네이티브 준비 작업은 새 티켓을 만들 수 없다. 잠금·전체 숨김·설정 변경도 준비를 무효화한다.
 - `validate_observation(&ObservationTicket)`: **캡처 직전과 직후** 호출한다. OS에서 선택 창/앱 식별자를 별도로 확인해야 한다.
 - `validate_observation_scope(&ObservationTicket)`: 반응 완료 후에도 범위·세대·시각을 검증한다. 이미 시작한 반응의 자체 발화 간격에는 걸리지 않는다.
-- `validate_observation_response_scope(&ObservationTicket)`: 이미 발급한 답변의 범위·세대·표시·잠금을 계속 검사한다. 분석 기한을 정상 재생 길이 제한으로 재사용하지 않는다.
+- `validate_observation_response_scope(&ObservationTicket)`: 이미 발급한 답변의 허용 범위·표시·잠금을 계속 검사한다. 분석 기한이나 다음 캡처 시도를 말풍선·음성의 수명 제한으로 재사용하지 않는다. 캡처의 `epoch`, 권한·설정의 `scopeEpoch`, 자동 반응의 입력·회의 억제용 `activityEpoch`를 구분한다. 다음 준비·대기 시간 거절·분석 실패·침묵은 이전 대사를 지우지 않으며, 실패한 티켓은 같은 요청의 발화만 취소할 수 있다. 실제 중지·권한 철회·범위 변경·잠금·숨김과 사용자 취소는 계속 적용한다.
 - `invalidate_observation()`: 현재 관찰 작업만 무효화하며 허용 설정과 직접 대화는 유지한다.
 - `invalidate_observation_ticket(&ticket)`: 그 티켓이 아직 현재 요청인 경우에만 취소한다. 이전 요청의 watchdog이 새 수동 요청까지 취소하지 않게 한다.
 - `observe(ObservationRequest { ticket, imageBase64, mimeType }) -> Option<ConversationReply>` (async): 도메인 권한/세대 검사. 실제 IPC는 `observe_with_validation(request, validate)`를 사용하며, 키 조회 후 전송 직전과 결과 직후 기록 반영 전에 네이티브 대상도 재검증한다. 이미지에는 명시적으로 허용한 창 또는 현재 모니터의 캡처만 넣는다.

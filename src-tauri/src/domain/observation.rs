@@ -33,6 +33,8 @@ pub enum ObservationPurpose {
 #[serde(rename_all = "camelCase")]
 pub struct ObservationTicket {
     pub epoch: u64,
+    pub scope_epoch: u64,
+    pub activity_epoch: u64,
     pub target: ObservationTarget,
     pub captured_at: i64,
     pub fingerprint: String,
@@ -50,6 +52,8 @@ pub struct ObservationRequest {
 #[derive(Default)]
 pub struct ObservationGate {
     epoch: u64,
+    scope_epoch: u64,
+    activity_epoch: u64,
     target: Option<ObservationTarget>,
     purpose: Option<ObservationPurpose>,
     runtime: RuntimeContext,
@@ -61,6 +65,12 @@ pub struct ObservationGate {
 
 impl ObservationGate {
     pub fn invalidate(&mut self) {
+        self.scope_epoch = self.scope_epoch.wrapping_add(1);
+        self.invalidate_pending();
+    }
+    /// A new capture replaces pending work, not the authorization of a reply
+    /// that has already been delivered for the user to read or hear.
+    pub fn invalidate_pending(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.target = None;
         self.purpose = None;
@@ -70,7 +80,7 @@ impl ObservationGate {
             && self.target.as_ref() == Some(&ticket.target)
             && self.purpose == Some(ticket.purpose)
         {
-            self.invalidate();
+            self.invalidate_pending();
             true
         } else {
             false
@@ -88,8 +98,15 @@ impl ObservationGate {
             || context.meeting != self.runtime.meeting;
         // Unknown input remains unknown; gaining or losing idle-input evidence
         // alone must not revoke an authorized frame or its current reply.
-        if safety_changed || (!explicit && verified_activity_changed) {
+        if safety_changed {
             self.invalidate();
+        } else if !explicit && verified_activity_changed {
+            self.invalidate_pending();
+        }
+        if verified_activity_changed {
+            // Explicit responses remain valid while the user types; automatic
+            // replies must stay cancelled even after the input stops again.
+            self.activity_epoch = self.activity_epoch.wrapping_add(1);
         }
         self.runtime = context;
         suppress
@@ -242,6 +259,8 @@ impl ObservationGate {
         self.last_attempt = Some(now);
         Ok(ObservationTicket {
             epoch: self.epoch,
+            scope_epoch: self.scope_epoch,
+            activity_epoch: self.activity_epoch,
             target,
             captured_at: now,
             fingerprint: fingerprint.into(),
@@ -287,6 +306,25 @@ impl ObservationGate {
             || self.epoch != ticket.epoch
             || self.target.as_ref() != Some(&ticket.target)
             || self.purpose != Some(ticket.purpose)
+        {
+            return Err("관찰 범위가 변경되어 이전 화면을 폐기했습니다.".into());
+        }
+        Ok(())
+    }
+    /// Published captions/audio outlive later capture attempts. Their original
+    /// authorization still expires on stop, settings, lock or runtime changes;
+    /// the native boundary additionally checks permission and the actual target.
+    pub fn validate_response_scope(
+        &self,
+        settings: &Settings,
+        ticket: &ObservationTicket,
+    ) -> Result<(), String> {
+        Self::allowed(settings, &ticket.target)?;
+        self.can_observe()?;
+        if !settings.observation.cloud_consent
+            || self.scope_epoch != ticket.scope_epoch
+            || (ticket.purpose == ObservationPurpose::Proactive
+                && self.activity_epoch != ticket.activity_epoch)
         {
             return Err("관찰 범위가 변경되어 이전 화면을 폐기했습니다.".into());
         }
@@ -651,5 +689,56 @@ mod tests {
         assert!(gate.validate_current_scope(&settings, &ticket).is_ok());
         gate.set_visible(false);
         assert!(gate.validate_current_scope(&settings, &ticket).is_err());
+    }
+
+    #[test]
+    fn next_capture_cooldown_duplicate_and_failure_do_not_revoke_published_scope() {
+        let (settings, target) = setup();
+        let mut gate = ready_gate();
+        let published = gate.begin(&settings, target.clone(), "same", 1000).unwrap();
+        gate.mark_seen(&published, 1000);
+        gate.mark_reaction(1000);
+        gate.invalidate_pending();
+        assert!(gate.begin(&settings, target.clone(), "new", 1001).is_err());
+        assert!(gate.validate_response_scope(&settings, &published).is_ok());
+        gate.invalidate_pending();
+        assert!(gate
+            .begin(&settings, target.clone(), "same", 120000)
+            .is_err());
+        assert!(gate.validate_response_scope(&settings, &published).is_ok());
+        let next = gate.begin(&settings, target, "new", 120000).unwrap();
+        assert!(gate.validate_scope(&settings, &published, 120000).is_err());
+        assert!(gate.validate_response_scope(&settings, &published).is_ok());
+        assert!(gate.invalidate_if_current(&next));
+        assert!(gate.validate_response_scope(&settings, &published).is_ok());
+        gate.invalidate();
+        assert!(gate.validate_response_scope(&settings, &published).is_err());
+    }
+
+    #[test]
+    fn explicit_and_automatic_published_scopes_keep_separate_activity_rules() {
+        let (settings, target) = setup();
+        let mut gate = ready_gate();
+        let automatic = gate.begin(&settings, target.clone(), "", 1000).unwrap();
+        let manual = gate
+            .begin_for(&settings, target, "", ObservationPurpose::OnDemand, 1001)
+            .unwrap();
+        gate.set_runtime(RuntimeContext {
+            typing: Some(true),
+            observation_visible: true,
+            ..Default::default()
+        });
+        assert!(gate.validate_response_scope(&settings, &automatic).is_err());
+        assert!(gate.validate_response_scope(&settings, &manual).is_ok());
+        gate.set_runtime(RuntimeContext {
+            typing: Some(false),
+            observation_visible: true,
+            ..Default::default()
+        });
+        assert!(gate.validate_response_scope(&settings, &automatic).is_err());
+        assert!(gate.validate_response_scope(&settings, &manual).is_ok());
+        gate.set_visible(false);
+        gate.set_visible(true);
+        assert!(gate.validate_response_scope(&settings, &manual).is_err());
     }
 }

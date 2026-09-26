@@ -160,6 +160,8 @@ mod tests {
         let context = ObservationContext {
             ticket: ObservationTicket {
                 epoch: 1,
+                scope_epoch: 1,
+                activity_epoch: 1,
                 target: ObservationTarget {
                     app_id: "screen".into(),
                     window_id: "screen:4".into(),

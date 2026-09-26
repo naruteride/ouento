@@ -41,8 +41,14 @@ pub struct Backend {
     provider: ProviderClient,
     direct_requests: AtomicUsize,
     manual_observations: AtomicUsize,
-    observation_utterance: Mutex<Option<String>>,
+    observation_utterance: Mutex<Option<ObservationUtterance>>,
     observation_context: Mutex<Option<(String, ObservationContext)>>,
+}
+
+struct ObservationUtterance {
+    id: String,
+    ticket_epoch: u64,
+    purpose: ObservationPurpose,
 }
 
 /// Created before native enumeration/debounce. This cannot be reconstructed by
@@ -190,8 +196,8 @@ impl Backend {
         }
     }
     fn cancel_observation_utterance(&self) -> Result<(), String> {
-        if let Some(id) = lock(&self.observation_utterance)?.take() {
-            self.utterances.cancel_if_current(&id);
+        if let Some(current) = lock(&self.observation_utterance)?.take() {
+            self.utterances.cancel_if_current(&current.id);
         }
         Ok(())
     }
@@ -206,7 +212,15 @@ impl Backend {
         let mut gate = lock(&self.gate)?;
         if gate.invalidate_if_current(ticket) {
             self.observations.cancel();
-            self.cancel_observation_utterance()?;
+            let mut current = lock(&self.observation_utterance)?;
+            if current
+                .as_ref()
+                .is_some_and(|value| value.ticket_epoch == ticket.epoch)
+            {
+                if let Some(current) = current.take() {
+                    self.utterances.cancel_if_current(&current.id);
+                }
+            }
         }
         Ok(())
     }
@@ -221,12 +235,23 @@ impl Backend {
     }
     pub fn set_runtime_context(&self, context: RuntimeContext) -> Result<(), String> {
         let mut gate = lock(&self.gate)?;
-        if context.screen_locked || !context.observation_visible {
+        let safety_stop = context.screen_locked || !context.observation_visible;
+        let proactive_stop = context.typing == Some(true) || context.meeting;
+        if safety_stop {
             self.observation_preparations.cancel();
         }
         let suppress = gate.set_runtime(context);
         if suppress {
             self.observations.cancel();
+        }
+        // A newer preparation may have a different purpose from the response
+        // already on screen. Each keeps its own input/meeting suppression rule.
+        if safety_stop
+            || (proactive_stop
+                && lock(&self.observation_utterance)?
+                    .as_ref()
+                    .is_some_and(|current| current.purpose == ObservationPurpose::Proactive))
+        {
             self.cancel_observation_utterance()?;
         }
         drop(gate);
@@ -455,10 +480,11 @@ impl Backend {
         {
             return Err("대화 중이라 화면 반응을 잠시 쉬고 있습니다.".into());
         }
-        // Invalidate the old ticket before publishing the new intent, so an old
-        // watchdog cannot mistake the replacement preparation for its own work.
+        // Replace unfinished capture/analysis before publishing the new intent.
+        // A delivered caption keeps its approval while this attempt prepares,
+        // waits for cooldown, fails, or decides there is nothing new to say.
         let mut gate = lock(&self.gate)?;
-        gate.invalidate();
+        gate.invalidate_pending();
         self.observations.cancel();
         let token = self.observation_preparations.begin();
         Ok(ObservationPreparation { token, purpose })
@@ -510,7 +536,7 @@ impl Backend {
         ticket: &ObservationTicket,
     ) -> Result<(), String> {
         let settings = self.settings()?;
-        lock(&self.gate)?.validate_current_scope(&settings, ticket)
+        lock(&self.gate)?.validate_response_scope(&settings, ticket)
     }
     pub fn validate_utterance(&self, utterance_id: &str) -> Result<(), String> {
         self.utterances.current(utterance_id).map(|_| ())
@@ -556,7 +582,7 @@ impl Backend {
             self.observations.cancel();
         }
         let mut current = lock(&self.observation_utterance)?;
-        if current.as_deref() != Some(utterance_id) {
+        if current.as_ref().map(|value| value.id.as_str()) != Some(utterance_id) {
             return Ok(false);
         }
         *current = None;
@@ -630,7 +656,11 @@ impl Backend {
             Ok(token) => token,
             Err(_) => return Ok(None),
         };
-        *lock(&self.observation_utterance)? = Some(token.id());
+        *lock(&self.observation_utterance)? = Some(ObservationUtterance {
+            id: token.id(),
+            ticket_epoch: ticket.epoch,
+            purpose: ticket.purpose,
+        });
         self.validate_observation(&ticket)?;
         {
             let mut gate = lock(&self.gate)?;
@@ -718,7 +748,11 @@ impl Backend {
         observation_token.check()?;
         self.validate_observation(&request.ticket)?;
         let token = self.utterances.begin_if_current(generation)?;
-        *lock(&self.observation_utterance)? = Some(token.id());
+        *lock(&self.observation_utterance)? = Some(ObservationUtterance {
+            id: token.id(),
+            ticket_epoch: request.ticket.epoch,
+            purpose: request.ticket.purpose,
+        });
         {
             let mut history = lock(&self.history)?;
             token.check()?;
@@ -1250,6 +1284,47 @@ mod tests {
             .begin_observation_for(target, "", ObservationPurpose::OnDemand)
             .is_ok());
         drop(explicit);
+    }
+
+    #[test]
+    fn automatic_reply_keeps_its_own_input_policy_during_a_manual_preparation() {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Backend::open(directory.path()).unwrap();
+        let mut settings = backend.settings().unwrap();
+        settings.observation.mode = ObservationMode::AllowedApps;
+        settings.observation.allowed_apps = vec!["example.editor".into()];
+        settings.observation.cloud_consent = true;
+        backend.save_settings(settings).unwrap();
+        backend
+            .set_runtime_context(RuntimeContext {
+                observation_visible: true,
+                ..Default::default()
+            })
+            .unwrap();
+        let event = os_event();
+        let reply = backend.react_to_os_event(&event).unwrap().unwrap();
+        let preparation = backend
+            .prepare_observation(ObservationPurpose::OnDemand)
+            .unwrap();
+        let pending = backend
+            .begin_prepared_observation(
+                &preparation,
+                ObservationTarget {
+                    app_id: event.target.app_id,
+                    window_id: event.target.window_id,
+                },
+                "manual-next-frame",
+            )
+            .unwrap();
+        backend
+            .set_runtime_context(RuntimeContext {
+                typing: Some(true),
+                observation_visible: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!backend.current_utterance(&reply.utterance_id));
+        assert!(backend.validate_observation(&pending).is_ok());
     }
     #[test]
     fn on_demand_analysis_does_not_replace_an_answer_with_automatic_jealousy() {

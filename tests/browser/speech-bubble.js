@@ -8,7 +8,8 @@ const style = document.createElement('style');
 style.textContent = speechBubbleStyles;
 document.head.append(style);
 const element = document.querySelector('#bubble');
-const bubble = new SpeechBubble(element);
+let onPhase = () => {};
+const bubble = new SpeechBubble(element, { setTimeout, clearTimeout }, (state) => onPhase(state));
 const status = document.querySelector('#status');
 const output = document.querySelector('#report');
 const buttons = [...document.querySelectorAll('button')];
@@ -123,6 +124,85 @@ document.querySelector('#verify').addEventListener('click', async () => {
     status.textContent = '검사 중 오류가 발생했습니다. 상세 보고서를 확인해 주세요.';
   } finally {
     report.finishedAt = new Date().toISOString();
+    output.textContent = JSON.stringify(report, null, 2);
+    for (const button of buttons) button.disabled = false;
+  }
+});
+
+// Unlike the accelerated animation check above, this waits for the production
+// reading timer itself. No fake clock, manual hide, or abbreviated duration.
+document.querySelector('#verify-duration').addEventListener('click', async () => {
+  for (const button of buttons) button.disabled = true;
+  status.removeAttribute('data-passed');
+  const report = { userAgent: navigator.userAgent, measurements: [], checks: [], passed: false };
+  try {
+    for (const [name, text] of [
+      ['짧은 대사', shortText],
+      ['긴 대사', longText],
+    ]) {
+      bubble.hide(true);
+      await nextFrame();
+      const duration = speechBubbleDuration(text);
+      status.textContent = `${name}의 실제 ${duration / 1000}초 유지 시간을 측정합니다…`;
+      const measurement = { name, expected: duration, phases: [], checkpoints: [] };
+      const start = performance.now();
+      await new Promise((resolve, reject) => {
+        const checkpoints = [5000, duration - 200].map((delay) =>
+          setTimeout(() => {
+            measurement.checkpoints.push(sample(performance.now() - start));
+          }, delay),
+        );
+        const timeout = setTimeout(
+          () => reject(new Error('말풍선 종료 시간 초과')),
+          duration + 5000,
+        );
+        onPhase = ({ state }) => {
+          measurement.phases.push({ state, milliseconds: rounded(performance.now() - start) });
+          if (state === 'hidden') {
+            clearTimeout(timeout);
+            checkpoints.forEach(clearTimeout);
+            onPhase = () => {};
+            resolve();
+          }
+        };
+        bubble.show(text);
+      });
+      const exit = measurement.phases.find((phase) => phase.state === 'hiding');
+      const hidden = measurement.phases.find((phase) => phase.state === 'hidden');
+      report.measurements.push(measurement);
+      report.checks.push(
+        {
+          name: `${name}: 읽기 시간 전에 사라지지 않음`,
+          passed: !!exit && exit.milliseconds >= duration - 3,
+        },
+        {
+          name: `${name}: 5초 경과와 만료 직전에도 표시`,
+          passed:
+            measurement.checkpoints.length === 2 &&
+            measurement.checkpoints.every(
+              (point) =>
+                point.state === 'visible' && point.opacity === 1 && point.display === 'block',
+            ),
+        },
+        {
+          name: `${name}: 읽기 시간 뒤 400ms 퇴장`,
+          passed:
+            !!hidden &&
+            hidden.milliseconds - exit.milliseconds >= 397 &&
+            hidden.milliseconds < duration + 2000,
+        },
+      );
+    }
+    report.passed = report.checks.every((check) => check.passed);
+    status.dataset.passed = String(report.passed);
+    status.textContent = `${report.passed ? '전체 통과' : '검사 실패'} · 유지 시간 ${report.checks.filter((check) => check.passed).length}/${report.checks.length}`;
+  } catch (error) {
+    report.error = String(error);
+    status.dataset.passed = 'false';
+    status.textContent = '유지 시간 검사 중 오류';
+  } finally {
+    onPhase = () => {};
+    bubble.hide(true);
     output.textContent = JSON.stringify(report, null, 2);
     for (const button of buttons) button.disabled = false;
   }

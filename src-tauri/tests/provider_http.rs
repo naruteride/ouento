@@ -862,6 +862,141 @@ fn explicit_observation(backend: &Backend) -> ObservationRequest {
 }
 
 #[tokio::test]
+async fn published_caption_survives_tts_failure_and_following_observation_attempts() {
+    let vision = json!({"reaction":reaction(),"scene":{"resultStatus":"none","resultOwner":"unknown","otherCharacter":false}});
+    let mut silent_vision = vision.clone();
+    silent_vision["reaction"]["shouldReact"] = json!(false);
+    silent_vision["reaction"]["text"] = json!("");
+    let mut server = LocalServer::scripted(vec![
+        fixed(200, "application/json", completion(vision.clone())),
+        fixed(
+            404,
+            "application/json",
+            br#"{"error":{"message":"synthetic missing voice"}}"#.to_vec(),
+        ),
+        fixed(
+            503,
+            "application/json",
+            br#"{"error":{"message":"synthetic unavailable"}}"#.to_vec(),
+        ),
+        fixed(200, "application/json", completion(silent_vision)),
+        fixed(200, "application/json", completion(vision)),
+    ]);
+    let directory = tempfile::tempdir().unwrap();
+    let backend = Backend::open(directory.path()).unwrap();
+    let mut settings = backend.settings().unwrap();
+    settings.providers.chat = server.config();
+    settings.providers.tts = server.config();
+    settings.voice_enabled = true;
+    settings.muted = false;
+    settings.observation.mode = ObservationMode::CurrentScreen;
+    settings.observation.cloud_consent = true;
+    settings.observation.screen_consent = true;
+    backend.save_settings(settings).unwrap();
+    backend
+        .set_runtime_context(RuntimeContext {
+            observation_visible: true,
+            ..Default::default()
+        })
+        .unwrap();
+    let request = explicit_observation(&backend);
+    let published_ticket = request.ticket.clone();
+    let reply = backend.observe(request).await.unwrap().unwrap();
+    server.request().await;
+    assert!(backend
+        .speech(&reply.utterance_id, &reply.reaction.text)
+        .await
+        .is_err());
+    assert_eq!(server.request().await.path, "/v1/audio/speech");
+    assert!(backend.current_utterance(&reply.utterance_id));
+
+    // Native enumeration/capture can fail after preparation, before a ticket
+    // is issued. That preparation must not revoke a caption already delivered.
+    let abandoned = backend
+        .prepare_observation(ObservationPurpose::Proactive)
+        .unwrap();
+    assert!(
+        backend
+            .validate_observation_response_scope(&published_ticket)
+            .is_ok(),
+        "starting the next observation must not erase the current caption"
+    );
+    let preparation = backend
+        .prepare_observation(ObservationPurpose::Proactive)
+        .unwrap();
+    assert!(abandoned.check().is_err());
+    assert!(backend
+        .begin_prepared_observation(&preparation, published_ticket.target.clone(), "")
+        .is_err());
+    assert!(
+        backend
+            .validate_observation_response_scope(&published_ticket)
+            .is_ok(),
+        "a cooldown rejection must leave the caption readable"
+    );
+    assert!(backend.current_utterance(&reply.utterance_id));
+
+    // This was an explicit response. A later automatic preparation must not
+    // make typing/meeting suppression erase the user's requested caption.
+    for (typing, meeting) in [(Some(true), false), (None, true), (None, false)] {
+        backend
+            .set_runtime_context(RuntimeContext {
+                typing,
+                meeting,
+                observation_visible: true,
+                screen_locked: false,
+            })
+            .unwrap();
+        assert!(backend.current_utterance(&reply.utterance_id));
+        assert!(backend
+            .validate_observation_response_scope(&published_ticket)
+            .is_ok());
+    }
+
+    // An actual next analysis may fail or choose silence. Its capture ticket
+    // differs, but the previous caption's approved scope is still unchanged.
+    let failed = explicit_observation(&backend);
+    let failed_ticket = failed.ticket.clone();
+    assert!(backend.validate_observation(&published_ticket).is_err());
+    assert!(backend
+        .validate_observation_response_scope(&published_ticket)
+        .is_ok());
+    assert!(backend.observe(failed).await.is_err());
+    server.request().await;
+    backend
+        .invalidate_observation_ticket(&failed_ticket)
+        .unwrap();
+    assert!(backend.current_utterance(&reply.utterance_id));
+    assert!(backend
+        .validate_observation_response_scope(&published_ticket)
+        .is_ok());
+    assert!(backend
+        .observe(explicit_observation(&backend))
+        .await
+        .unwrap()
+        .is_none());
+    server.request().await;
+    assert!(backend.current_utterance(&reply.utterance_id));
+    assert!(backend
+        .validate_observation_response_scope(&published_ticket)
+        .is_ok());
+
+    let replacement = backend
+        .observe(explicit_observation(&backend))
+        .await
+        .unwrap()
+        .unwrap();
+    server.request().await;
+    assert!(!backend.current_utterance(&reply.utterance_id));
+    assert!(backend.current_utterance(&replacement.utterance_id));
+    backend.stop_observation().unwrap();
+    assert!(!backend.current_utterance(&replacement.utterance_id));
+    assert!(backend
+        .validate_observation_response_scope(&published_ticket)
+        .is_err());
+}
+
+#[tokio::test]
 async fn native_screen_validation_runs_before_http_and_before_history_commit() {
     for denied_check in [1, 2] {
         let mut responses = Vec::<Reply>::new();
